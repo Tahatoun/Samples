@@ -1,0 +1,140 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace MyApp.Modules.Entities
+{
+    // --- DataModel ---
+    public class Entity
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public ICollection<EntityOption> Options { get; set; }
+    }
+
+    public class EntityOption
+    {
+        public int Id { get; set; }
+        public int EntityId { get; set; }
+        public string Label { get; set; }
+
+        public Entity Entity { get; set; }
+    }
+
+    // --- DTOs ---
+    public class EntityDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+    }
+
+    public class EntityOptionDto
+    {
+        public int Id { get; set; }
+        public string Label { get; set; }
+    }
+
+    // --- Interfaces (Business Layer) ---
+    public interface IEntityService
+    {
+        Task<IEnumerable<Entity>> GetAllEntitiesAsync();
+        Task<IEnumerable<EntityOption>> GetOptionsForEntityAsync(int entityId);
+    }
+
+    public interface IEntityRepository
+    {
+        Task<IEnumerable<Entity>> GetAllAsync();
+        Task<IEnumerable<EntityOption>> GetOptionsByEntityIdAsync(int entityId);
+    }
+
+    // --- Implémentation Service (Business Layer) ---
+    public class EntityService : IEntityService
+    {
+        private readonly IEntityRepository _repository;
+
+        public EntityService(IEntityRepository repository)
+        {
+            _repository = repository;
+        }
+
+        public Task<IEnumerable<Entity>> GetAllEntitiesAsync() => _repository.GetAllAsync();
+
+        public Task<IEnumerable<EntityOption>> GetOptionsForEntityAsync(int entityId) =>
+            _repository.GetOptionsByEntityIdAsync(entityId);
+    }
+
+    // --- Implémentation Repository (DAO Layer) ---
+    public class EntityRepository : IEntityRepository
+    {
+        private readonly AppDbContext _context;
+
+        public EntityRepository(AppDbContext context)
+        {
+            _context = context;
+        }
+
+        public async Task<IEnumerable<Entity>> GetAllAsync()
+        {
+            return await _context.Entities.AsNoTracking().ToListAsync();
+        }
+
+        public async Task<IEnumerable<EntityOption>> GetOptionsByEntityIdAsync(int entityId)
+        {
+            return await _context.EntityOptions
+                .Where(opt => opt.EntityId == entityId)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+    }
+
+    // --- Controller (API Layer) ---
+    [ApiController]
+    [Route("api/entities")]
+    public class EntitiesController : ControllerBase
+    {
+        private readonly IEntityService _service;
+
+        public EntitiesController(IEntityService service)
+        {
+            _service = service;
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<EntityDto>>> GetAll()
+        {
+            var entities = await _service.GetAllEntitiesAsync();
+            return Ok(entities.Select(e => new EntityDto { Id = e.Id, Name = e.Name }));
+        }
+
+        [HttpGet("{id}/options")]
+        public async Task<ActionResult<IEnumerable<EntityOptionDto>>> GetOptions(int id)
+        {
+            var options = await _service.GetOptionsForEntityAsync(id);
+            return Ok(options.Select(o => new EntityOptionDto { Id = o.Id, Label = o.Label }));
+        }
+    }
+
+    // --- DbContext (DAO) ---
+    public class AppDbContext : DbContext
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options) { }
+
+        public DbSet<Entity> Entities { get; set; }
+        public DbSet<EntityOption> EntityOptions { get; set; }
+    }
+
+    // --- Extension DI (pour Startup ou Program.cs) ---
+    public static class EntityModuleExtensions
+    {
+        public static IServiceCollection AddEntityModule(this IServiceCollection services)
+        {
+            services.AddScoped<IEntityRepository, EntityRepository>();
+            services.AddScoped<IEntityService, EntityService>();
+            return services;
+        }
+    }
+}
