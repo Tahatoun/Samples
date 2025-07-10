@@ -1,33 +1,115 @@
-[ApiController]
-[Route("entities")]
-public class EntitiesController : ControllerBase
+using System;
+using System.IO;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
+
+namespace TemplateExample
 {
-    private readonly AppDbContext _context;
+    // ========================
+    // Models
+    // ========================
 
-    public EntitiesController(AppDbContext context)
+    public enum TemplateCategory
     {
-        _context = context;
+        Stock,
+        Taux
     }
 
-    [HttpGet]
-    public IActionResult GetEntities()
+    public record TemplateKey(TemplateCategory Category, string SubType);
+
+    public class TemplateDto
     {
-        // Simule appel Ulysse pour l’instant
-        var entities = new List<object>
+        public string FileName { get; set; } = null!;
+        public byte[] Content { get; set; } = null!;
+    }
+
+    // ========================
+    // Interface (Port)
+    // ========================
+
+    public interface ITemplateFactory
+    {
+        TemplateDto GetTemplate(TemplateKey key);
+    }
+
+    // ========================
+    // Implémentation (Adapter)
+    // ========================
+
+    public class TemplateFactory : ITemplateFactory
+    {
+        private readonly IWebHostEnvironment _env;
+
+        public TemplateFactory(IWebHostEnvironment env)
         {
-            new { Id = 1, Name = "BNP Paris-Bas", Region = "Métropole" }
-        };
+            _env = env;
+        }
 
-        return Ok(entities);
+        public TemplateDto GetTemplate(TemplateKey key)
+        {
+            var filePath = ResolvePath(key);
+            var fullPath = Path.Combine(_env.ContentRootPath, filePath);
+
+            if (!File.Exists(fullPath))
+                throw new FileNotFoundException($"Le template pour [{key.Category}/{key.SubType}] est introuvable.");
+
+            return new TemplateDto
+            {
+                FileName = Path.GetFileName(fullPath),
+                Content = File.ReadAllBytes(fullPath)
+            };
+        }
+
+        private string ResolvePath(TemplateKey key)
+        {
+            return key switch
+            {
+                { Category: TemplateCategory.Stock, SubType: "Spot" } => "wwwroot/Templates/Stocks/StockSpotTemplate.xlsx",
+                { Category: TemplateCategory.Stock, SubType: "Forward" } => "wwwroot/Templates/Stocks/StockForwardTemplate.xlsx",
+                { Category: TemplateCategory.Taux, SubType: "CourtTerme" } => "wwwroot/Templates/Taux/TauxCourtTerme.xlsx",
+                _ => throw new NotSupportedException($"Template non géré pour : {key.Category}/{key.SubType}")
+            };
+        }
     }
 
-    [HttpGet("{entityId}/options")]
-    public async Task<IActionResult> GetOptionsByEntity(decimal entityId)
-    {
-        var options = await _context.EntityStockOptions
-                                    .Where(o => o.EntityId == entityId)
-                                    .ToListAsync();
+    // ========================
+    // Contrôleur API
+    // ========================
 
-        return Ok(options);
+    [ApiController]
+    [Route("api/templates")]
+    public class TemplatesController : ControllerBase
+    {
+        private readonly ITemplateFactory _templateFactory;
+
+        public TemplatesController(ITemplateFactory templateFactory)
+        {
+            _templateFactory = templateFactory;
+        }
+
+        [HttpGet("{category}/{subType}")]
+        public IActionResult GetTemplate(string category, string subType)
+        {
+            if (!Enum.TryParse<TemplateCategory>(category, true, out var parsedCategory))
+                return BadRequest("Catégorie invalide.");
+
+            try
+            {
+                var key = new TemplateKey(parsedCategory, subType);
+                var template = _templateFactory.GetTemplate(key);
+                return File(template.Content,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            template.FileName);
+            }
+            catch (NotSupportedException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (FileNotFoundException ex)
+            {
+                return NotFound(ex.Message);
+            }
+        }
     }
 }
