@@ -1,115 +1,210 @@
-using System;
-using System.IO;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Threading.Tasks;
 
-namespace TemplateExample
+// ========== ENUM ==========
+public enum ResourceType
 {
-    // ========================
-    // Models
-    // ========================
+    Product,
+    Model,
+    Rate
+}
 
-    public enum TemplateCategory
+// ========== INPUT DTOs ==========
+public class ProductTemplateInputDto
+{
+    public int? ProductId { get; set; }
+    public string? ProductName { get; set; }
+}
+
+public class ModelTemplateInputDto
+{
+    public int? ModelId { get; set; }
+    public string? ModelName { get; set; }
+    public string? OptionType { get; set; }
+}
+
+public class RateTemplateInputDto
+{
+    public int? RateId { get; set; }
+    public string? RateType { get; set; }
+    public int? ComponentRateId { get; set; }
+    public string? OptionType { get; set; }
+}
+
+// ========== DOMAIN MODELS ==========
+public record Product(int Id, string Name);
+public record Model(int Id, string Name, string Option);
+public record Rate(int Id, string Type, int ComponentId, string Option);
+
+// ========== REPOSITORY INTERFACES (Simulées) ==========
+public interface IProductRepository
+{
+    Task<Product> GetByIdAsync(int id);
+    Task<Product> GetByNameAsync(string name);
+}
+
+public interface IModelRepository
+{
+    Task<Model> GetByIdAsync(int id);
+    Task<Model> GetByNameAndOptionAsync(string name, string option);
+}
+
+public interface IRateRepository
+{
+    Task<Rate> GetByIdAsync(int id);
+    Task<Rate> GetByTypeAndComponentAsync(string rateType, int componentId, string optionType);
+}
+
+// ========== IMPLÉMENTATIONS FAKE DES REPOS ==========
+public class FakeProductRepository : IProductRepository
+{
+    public Task<Product> GetByIdAsync(int id) => Task.FromResult(new Product(id, $"Product_{id}"));
+    public Task<Product> GetByNameAsync(string name) => Task.FromResult(new Product(1, name));
+}
+
+public class FakeModelRepository : IModelRepository
+{
+    public Task<Model> GetByIdAsync(int id) => Task.FromResult(new Model(id, $"Model_{id}", "Call"));
+    public Task<Model> GetByNameAndOptionAsync(string name, string option) => Task.FromResult(new Model(1, name, option));
+}
+
+public class FakeRateRepository : IRateRepository
+{
+    public Task<Rate> GetByIdAsync(int id) => Task.FromResult(new Rate(id, "Fixed", 10, "Call"));
+    public Task<Rate> GetByTypeAndComponentAsync(string rateType, int componentId, string optionType) =>
+        Task.FromResult(new Rate(1, rateType, componentId, optionType));
+}
+
+// ========== INTERFACE GÉNÉRIQUE ==========
+public interface ITemplateResolver<TInput, TResult>
+{
+    Task<TResult> ResolveTemplateAsync(TInput input);
+}
+
+// ========== RÉSOLVEURS ==========
+public class ProductTemplateResolver : ITemplateResolver<ProductTemplateInputDto, Product>
+{
+    private readonly IProductRepository _repo;
+    public ProductTemplateResolver(IProductRepository repo) => _repo = repo;
+
+    public async Task<Product> ResolveTemplateAsync(ProductTemplateInputDto input)
     {
-        Stock,
-        Taux
-    }
+        if (input.ProductId.HasValue)
+            return await _repo.GetByIdAsync(input.ProductId.Value);
 
-    public record TemplateKey(TemplateCategory Category, string SubType);
+        if (!string.IsNullOrWhiteSpace(input.ProductName))
+            return await _repo.GetByNameAsync(input.ProductName);
 
-    public class TemplateDto
-    {
-        public string FileName { get; set; } = null!;
-        public byte[] Content { get; set; } = null!;
-    }
-
-    // ========================
-    // Interface (Port)
-    // ========================
-
-    public interface ITemplateFactory
-    {
-        TemplateDto GetTemplate(TemplateKey key);
-    }
-
-    // ========================
-    // Implémentation (Adapter)
-    // ========================
-
-    public class TemplateFactory : ITemplateFactory
-    {
-        private readonly IWebHostEnvironment _env;
-
-        public TemplateFactory(IWebHostEnvironment env)
-        {
-            _env = env;
-        }
-
-        public TemplateDto GetTemplate(TemplateKey key)
-        {
-            var filePath = ResolvePath(key);
-            var fullPath = Path.Combine(_env.ContentRootPath, filePath);
-
-            if (!File.Exists(fullPath))
-                throw new FileNotFoundException($"Le template pour [{key.Category}/{key.SubType}] est introuvable.");
-
-            return new TemplateDto
-            {
-                FileName = Path.GetFileName(fullPath),
-                Content = File.ReadAllBytes(fullPath)
-            };
-        }
-
-        private string ResolvePath(TemplateKey key)
-        {
-            return key switch
-            {
-                { Category: TemplateCategory.Stock, SubType: "Spot" } => "wwwroot/Templates/Stocks/StockSpotTemplate.xlsx",
-                { Category: TemplateCategory.Stock, SubType: "Forward" } => "wwwroot/Templates/Stocks/StockForwardTemplate.xlsx",
-                { Category: TemplateCategory.Taux, SubType: "CourtTerme" } => "wwwroot/Templates/Taux/TauxCourtTerme.xlsx",
-                _ => throw new NotSupportedException($"Template non géré pour : {key.Category}/{key.SubType}")
-            };
-        }
-    }
-
-    // ========================
-    // Contrôleur API
-    // ========================
-
-    [ApiController]
-    [Route("api/templates")]
-    public class TemplatesController : ControllerBase
-    {
-        private readonly ITemplateFactory _templateFactory;
-
-        public TemplatesController(ITemplateFactory templateFactory)
-        {
-            _templateFactory = templateFactory;
-        }
-
-        [HttpGet("{category}/{subType}")]
-        public IActionResult GetTemplate(string category, string subType)
-        {
-            if (!Enum.TryParse<TemplateCategory>(category, true, out var parsedCategory))
-                return BadRequest("Catégorie invalide.");
-
-            try
-            {
-                var key = new TemplateKey(parsedCategory, subType);
-                var template = _templateFactory.GetTemplate(key);
-                return File(template.Content,
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            template.FileName);
-            }
-            catch (NotSupportedException ex)
-            {
-                return NotFound(ex.Message);
-            }
-            catch (FileNotFoundException ex)
-            {
-                return NotFound(ex.Message);
-            }
-        }
+        throw new ArgumentException("Invalid product input");
     }
 }
+
+public class ModelTemplateResolver : ITemplateResolver<ModelTemplateInputDto, Model>
+{
+    private readonly IModelRepository _repo;
+    public ModelTemplateResolver(IModelRepository repo) => _repo = repo;
+
+    public async Task<Model> ResolveTemplateAsync(ModelTemplateInputDto input)
+    {
+        if (input.ModelId.HasValue)
+            return await _repo.GetByIdAsync(input.ModelId.Value);
+
+        if (!string.IsNullOrWhiteSpace(input.ModelName) && !string.IsNullOrWhiteSpace(input.OptionType))
+            return await _repo.GetByNameAndOptionAsync(input.ModelName, input.OptionType);
+
+        throw new ArgumentException("Invalid model input");
+    }
+}
+
+public class RateTemplateResolver : ITemplateResolver<RateTemplateInputDto, Rate>
+{
+    private readonly IRateRepository _repo;
+    public RateTemplateResolver(IRateRepository repo) => _repo = repo;
+
+    public async Task<Rate> ResolveTemplateAsync(RateTemplateInputDto input)
+    {
+        if (input.RateId.HasValue)
+            return await _repo.GetByIdAsync(input.RateId.Value);
+
+        if (!string.IsNullOrWhiteSpace(input.RateType) && input.ComponentRateId.HasValue && !string.IsNullOrWhiteSpace(input.OptionType))
+            return await _repo.GetByTypeAndComponentAsync(input.RateType, input.ComponentRateId.Value, input.OptionType);
+
+        throw new ArgumentException("Invalid rate input");
+    }
+}
+
+// ========== FACTORY ==========
+public interface ITemplateResolverFactory
+{
+    object GetResolver(ResourceType type);
+}
+
+public class TemplateResolverFactory : ITemplateResolverFactory
+{
+    private readonly IServiceProvider _provider;
+
+    public TemplateResolverFactory(IServiceProvider provider) => _provider = provider;
+
+    public object GetResolver(ResourceType type) => type switch
+    {
+        ResourceType.Product => _provider.GetRequiredService<ITemplateResolver<ProductTemplateInputDto, Product>>(),
+        ResourceType.Model => _provider.GetRequiredService<ITemplateResolver<ModelTemplateInputDto, Model>>(),
+        ResourceType.Rate => _provider.GetRequiredService<ITemplateResolver<RateTemplateInputDto, Rate>>(),
+        _ => throw new NotSupportedException($"Unsupported type {type}")
+    };
+}
+
+// ========== CONTROLLER ==========
+[ApiController]
+[Route("api/templates")]
+public class TemplateController : ControllerBase
+{
+    private readonly ITemplateResolverFactory _resolverFactory;
+
+    public TemplateController(ITemplateResolverFactory resolverFactory) => _resolverFactory = resolverFactory;
+
+    [HttpPost("product")]
+    public async Task<IActionResult> ResolveProduct([FromBody] ProductTemplateInputDto input)
+    {
+        var resolver = (ITemplateResolver<ProductTemplateInputDto, Product>)_resolverFactory.GetResolver(ResourceType.Product);
+        var result = await resolver.ResolveTemplateAsync(input);
+        return Ok(result);
+    }
+
+    [HttpPost("model")]
+    public async Task<IActionResult> ResolveModel([FromBody] ModelTemplateInputDto input)
+    {
+        var resolver = (ITemplateResolver<ModelTemplateInputDto, Model>)_resolverFactory.GetResolver(ResourceType.Model);
+        var result = await resolver.ResolveTemplateAsync(input);
+        return Ok(result);
+    }
+
+    [HttpPost("rate")]
+    public async Task<IActionResult> ResolveRate([FromBody] RateTemplateInputDto input)
+    {
+        var resolver = (ITemplateResolver<RateTemplateInputDto, Rate>)_resolverFactory.GetResolver(ResourceType.Rate);
+        var result = await resolver.ResolveTemplateAsync(input);
+        return Ok(result);
+    }
+}
+
+// ========== PROGRAM ==========
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+
+builder.Services.AddScoped<IProductRepository, FakeProductRepository>();
+builder.Services.AddScoped<IModelRepository, FakeModelRepository>();
+builder.Services.AddScoped<IRateRepository, FakeRateRepository>();
+
+builder.Services.AddScoped<ITemplateResolver<ProductTemplateInputDto, Product>, ProductTemplateResolver>();
+builder.Services.AddScoped<ITemplateResolver<ModelTemplateInputDto, Model>, ModelTemplateResolver>();
+builder.Services.AddScoped<ITemplateResolver<RateTemplateInputDto, Rate>, RateTemplateResolver>();
+builder.Services.AddScoped<ITemplateResolverFactory, TemplateResolverFactory>();
+
+var app = builder.Build();
+app.MapControllers();
+app.Run();
