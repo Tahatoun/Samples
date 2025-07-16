@@ -1,0 +1,57 @@
+using CommandLine;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+public class Options
+{
+    [Option("file1", Required = true, HelpText = "Chemin vers le premier fichier CSV.")]
+    public string File1 { get; set; }
+
+    [Option("file2", Required = true, HelpText = "Chemin vers le deuxième fichier CSV.")]
+    public string File2 { get; set; }
+
+    [Option("output", Required = true, HelpText = "Chemin du fichier de sortie (différences).")]
+    public string Output { get; set; }
+}
+
+class Program
+{
+    static int Main(string[] args)
+    {
+        return Parser.Default.ParseArguments<Options>(args)
+            .MapResult(
+                (Options opts) => RunComparison(opts),
+                errs => 1
+            );
+    }
+
+    static int RunComparison(Options opts)
+    {
+        try
+        {
+            var lines1 = File.ReadAllLines(opts.File1).Skip(1).Select(l => l.Trim()).ToHashSet();
+            var lines2 = File.ReadAllLines(opts.File2).Skip(1).Select(l => l.Trim()).ToHashSet();
+
+            var onlyIn1 = lines1.Except(lines2).ToList();
+            var onlyIn2 = lines2.Except(lines1).ToList();
+
+            using var writer = new StreamWriter(opts.Output);
+            writer.WriteLine("Type,Content");
+
+            foreach (var line in onlyIn1)
+                writer.WriteLine($"ONLY_IN_FILE1,\"{line.Replace("\"", "\"\"")}\"");
+
+            foreach (var line in onlyIn2)
+                writer.WriteLine($"ONLY_IN_FILE2,\"{line.Replace("\"", "\"\"")}\"");
+
+            Console.WriteLine($"✅ Comparaison terminée. Résultat dans : {opts.Output}");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"❌ Erreur lors de la comparaison : {ex.Message}");
+            return 1;
+        }
+    }
+}
