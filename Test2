@@ -1,103 +1,82 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
+╔════════════════════════════════════════════════════════════╗
+║               Comparateur de fichiers CSV                 ║
+║                    (outil autonome)                       ║
+╚════════════════════════════════════════════════════════════╝
 
-namespace CsvComparerCli
-{
-    // ================================
-    // MODELE RESULTAT COMPARAISON CSV
-    // ================================
-    public class CsvComparisonResult
-    {
-        public string Header { get; set; } = string.Empty;
-        public List<string> MissingInFile1 { get; set; } = new();
-        public List<string> MissingInFile2 { get; set; } = new();
-    }
+📌 OBJECTIF :
+Comparer deux fichiers CSV ligne par ligne, et générer un fichier listant les différences.
 
-    // =====================
-    // HELPER DE LECTURE CSV
-    // =====================
-    public static class CsvReaderHelper
-    {
-        public static (string Header, HashSet<string> Lines) ReadCsvContent(string filePath)
-        {
-            if (!File.Exists(filePath))
-                throw new FileNotFoundException($"Fichier non trouvé : {filePath}");
+Ce programme est un exécutable simple, livré sans installation. Il fonctionne directement sur Windows.
 
-            var allLines = File.ReadAllLines(filePath, Encoding.UTF8);
-            if (allLines.Length < 1)
-                throw new Exception($"Fichier vide ou invalide : {filePath}");
+────────────────────────────────────────────────────────────
 
-            var header = allLines[0].Trim();
-            var lines = new HashSet<string>(
-                allLines.Skip(1)
-                        .Select(l => l.Trim())
-                        .Where(l => !string.IsNullOrWhiteSpace(l))
-            );
+📁 FICHIERS NÉCESSAIRES :
+- file1.csv → premier fichier à comparer
+- file2.csv → deuxième fichier à comparer
+- output.csv → fichier généré listant les différences
 
-            return (header, lines);
-        }
-    }
+────────────────────────────────────────────────────────────
 
-    // =========================
-    // SERVICE DE COMPARAISON CSV
-    // =========================
-    public class CsvComparer
-    {
-        public CsvComparisonResult CompareCsvFiles(string file1, string file2)
-        {
-            var (header1, lines1) = CsvReaderHelper.ReadCsvContent(file1);
-            var (header2, lines2) = CsvReaderHelper.ReadCsvContent(file2);
+▶️ MODE D’EMPLOI :
 
-            if (header1 != header2)
-                throw new Exception("Les fichiers n'ont pas les mêmes colonnes !");
+1. Extraire l’archive `CsvComparer.zip` dans un dossier de ton choix (ex : Bureau).
+2. Copier les deux fichiers CSV à comparer dans le même dossier.
+3. Ouvrir l’invite de commande (touche Windows + R → taper `cmd` → Entrée).
+4. Naviguer jusqu’au dossier de l’outil avec la commande :
+   cd Chemin\Vers\Le\Dossier
 
-            return new CsvComparisonResult
-            {
-                Header = header1,
-                MissingInFile1 = lines2.Except(lines1).ToList(),
-                MissingInFile2 = lines1.Except(lines2).ToList()
-            };
-        }
-    }
+   Exemple :
+   cd C:\Users\JeanDupont\Desktop\CsvComparer
 
-    // ============
-    // PROGRAMME CLI
-    // ============
-    public class Program
-    {
-        public static void Main(string[] args)
-        {
-            if (args.Length != 2)
-            {
-                Console.WriteLine("❌ Usage : dotnet run -- <file1.csv> <file2.csv>");
-                return;
-            }
+5. Exécuter la commande suivante en remplaçant les noms si nécessaire :
 
-            var file1 = args[0];
-            var file2 = args[1];
+   CsvComparer.exe --file1 sample1.csv --file2 sample2.csv --output differences.csv
 
-            try
-            {
-                var comparer = new CsvComparer();
-                var result = comparer.CompareCsvFiles(file1, file2);
+   ✅ Le fichier `differences.csv` sera généré dans le même dossier.
 
-                Console.WriteLine("📊 Résumé de la comparaison :");
-                Console.WriteLine($"→ Lignes dans {Path.GetFileName(file1)} mais absentes dans {Path.GetFileName(file2)} : {result.MissingInFile2.Count}");
-                Console.WriteLine($"→ Lignes dans {Path.GetFileName(file2)} mais absentes dans {Path.GetFileName(file1)} : {result.MissingInFile1.Count}");
+────────────────────────────────────────────────────────────
 
-                Directory.CreateDirectory("output");
-                File.WriteAllLines("output/missing_in_file1.csv", new[] { result.Header }.Concat(result.MissingInFile1));
-                File.WriteAllLines("output/missing_in_file2.csv", new[] { result.Header }.Concat(result.MissingInFile2));
+📄 FORMAT DU FICHIER DE SORTIE :
 
-                Console.WriteLine("\n✅ Résultats sauvegardés dans le dossier 'output'");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"❌ Erreur : {ex.Message}");
-            }
-        }
-    }
-}
+Le fichier `differences.csv` contiendra deux types de lignes :
+
+- `ONLY_IN_FILE1` = lignes présentes uniquement dans le fichier 1
+- `ONLY_IN_FILE2` = lignes présentes uniquement dans le fichier 2
+
+Exemple :
+Type,Content  
+ONLY_IN_FILE1,"AAPL,2024-01-01,150.23"  
+ONLY_IN_FILE2,"GOOG,2024-01-01,2725.45"
+
+────────────────────────────────────────────────────────────
+
+💡 REMARQUES IMPORTANTES :
+- Les fichiers CSV doivent commencer par une ligne d’en-tête.
+- Les lignes sont comparées **exactement**, sans tolérance (espaces, majuscules, etc.).
+- Ne pas ouvrir les CSV dans Excel avant la comparaison (ça peut modifier le format).
+- Si les fichiers sont très gros (plusieurs Mo), le traitement peut prendre quelques secondes.
+
+────────────────────────────────────────────────────────────
+
+📦 POUR MÉMOIRE : DÉVELOPPEUR TECHNIQUE
+
+L’outil a été compilé avec :
+- .NET 7
+- CommandLineParser (nuget : CommandLine)
+- Mode autonome (self-contained) → pas besoin de .NET installé
+- Commande utilisée :
+  dotnet publish -c Release -r win-x64 --self-contained true ^
+      /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+
+────────────────────────────────────────────────────────────
+
+👨‍💻 EN CAS DE BESOIN :
+
+Si vous avez des questions ou souhaitez une version avec interface graphique :
+
+→ Contact : [Ton nom ou équipe]  
+→ Email : [adresse@email.com]
+
+────────────────────────────────────────────────────────────
+
+📅 Dernière mise à jour : [16 juillet 2025]
