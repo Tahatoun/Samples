@@ -1,82 +1,81 @@
-╔════════════════════════════════════════════════════════════╗
-║               Comparateur de fichiers CSV                 ║
-║                    (outil autonome)                       ║
-╚════════════════════════════════════════════════════════════╝
+using Xunit;
+using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
+using YourNamespace.Repositories;
+using YourNamespace.Models;
+using System;
 
-📌 OBJECTIF :
-Comparer deux fichiers CSV ligne par ligne, et générer un fichier listant les différences.
+namespace YourNamespace.Tests.Repositories
+{
+    public class EntitiesRepositoryTests
+    {
+        private ModelContext GetInMemoryContext()
+        {
+            var options = new DbContextOptionsBuilder<ModelContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
 
-Ce programme est un exécutable simple, livré sans installation. Il fonctionne directement sur Windows.
+            var context = new ModelContext(options);
 
-────────────────────────────────────────────────────────────
+            // Ajout de données de test
+            var entity = new Entity { Id = 1, Name = "TestEntity" };
+            var option = new Option { Id = 1, Name = "TestOption" };
+            var version = new Version { Id = 1, EntityId = 1, OptionId = 1, Label = "v1" };
 
-📁 FICHIERS NÉCESSAIRES :
-- file1.csv → premier fichier à comparer
-- file2.csv → deuxième fichier à comparer
-- output.csv → fichier généré listant les différences
+            context.Entities.Add(entity);
+            context.Options.Add(option);
+            context.Versions.Add(version);
+            context.SaveChanges();
 
-────────────────────────────────────────────────────────────
+            return context;
+        }
 
-▶️ MODE D’EMPLOI :
+        [Fact]
+        public async Task GetByIdAsync_ShouldReturnEntity_WhenEntityExists()
+        {
+            // Arrange
+            using var context = GetInMemoryContext();
+            var repository = new EntitiesRepository(context);
 
-1. Extraire l’archive `CsvComparer.zip` dans un dossier de ton choix (ex : Bureau).
-2. Copier les deux fichiers CSV à comparer dans le même dossier.
-3. Ouvrir l’invite de commande (touche Windows + R → taper `cmd` → Entrée).
-4. Naviguer jusqu’au dossier de l’outil avec la commande :
-   cd Chemin\Vers\Le\Dossier
+            // Act
+            var result = await repository.GetByIdAsync(1);
 
-   Exemple :
-   cd C:\Users\JeanDupont\Desktop\CsvComparer
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal("TestEntity", result.Name);
+        }
 
-5. Exécuter la commande suivante en remplaçant les noms si nécessaire :
+        [Fact]
+        public async Task GetEntityOptionVersions_ShouldReturnCorrectVersion()
+        {
+            // Arrange
+            using var context = GetInMemoryContext();
+            var repository = new EntitiesRepository(context);
+            var entity = await context.Entities.FirstAsync();
+            var option = await context.Options.FirstAsync();
 
-   CsvComparer.exe --file1 sample1.csv --file2 sample2.csv --output differences.csv
+            // Act
+            var version = await repository.GetEntityOptionVersions(entity, option);
 
-   ✅ Le fichier `differences.csv` sera généré dans le même dossier.
+            // Assert
+            Assert.NotNull(version);
+            Assert.Equal("v1", version.Label);
+        }
 
-────────────────────────────────────────────────────────────
+        [Fact]
+        public async Task GetEntityOptionVersions_ShouldReturnNull_WhenNoMatch()
+        {
+            // Arrange
+            using var context = GetInMemoryContext();
+            var repository = new EntitiesRepository(context);
+            var entity = await context.Entities.FirstAsync();
+            var nonExistingOption = new Option { Id = 99 };
 
-📄 FORMAT DU FICHIER DE SORTIE :
+            // Act
+            var version = await repository.GetEntityOptionVersions(entity, nonExistingOption);
 
-Le fichier `differences.csv` contiendra deux types de lignes :
-
-- `ONLY_IN_FILE1` = lignes présentes uniquement dans le fichier 1
-- `ONLY_IN_FILE2` = lignes présentes uniquement dans le fichier 2
-
-Exemple :
-Type,Content  
-ONLY_IN_FILE1,"AAPL,2024-01-01,150.23"  
-ONLY_IN_FILE2,"GOOG,2024-01-01,2725.45"
-
-────────────────────────────────────────────────────────────
-
-💡 REMARQUES IMPORTANTES :
-- Les fichiers CSV doivent commencer par une ligne d’en-tête.
-- Les lignes sont comparées **exactement**, sans tolérance (espaces, majuscules, etc.).
-- Ne pas ouvrir les CSV dans Excel avant la comparaison (ça peut modifier le format).
-- Si les fichiers sont très gros (plusieurs Mo), le traitement peut prendre quelques secondes.
-
-────────────────────────────────────────────────────────────
-
-📦 POUR MÉMOIRE : DÉVELOPPEUR TECHNIQUE
-
-L’outil a été compilé avec :
-- .NET 7
-- CommandLineParser (nuget : CommandLine)
-- Mode autonome (self-contained) → pas besoin de .NET installé
-- Commande utilisée :
-  dotnet publish -c Release -r win-x64 --self-contained true ^
-      /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
-
-────────────────────────────────────────────────────────────
-
-👨‍💻 EN CAS DE BESOIN :
-
-Si vous avez des questions ou souhaitez une version avec interface graphique :
-
-→ Contact : [Ton nom ou équipe]  
-→ Email : [adresse@email.com]
-
-────────────────────────────────────────────────────────────
-
-📅 Dernière mise à jour : [16 juillet 2025]
+            // Assert
+            Assert.Null(version);
+        }
+    }
+}
