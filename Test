@@ -1,210 +1,95 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Threading.Tasks;
+using System.Data;
+using ExcelDataReader;
 
-// ========== ENUM ==========
-public enum ResourceType
+public class ExcelScenarioExtractor
 {
-    Product,
-    Model,
-    Rate
-}
+    private readonly DateTime _situationDate;
 
-// ========== INPUT DTOs ==========
-public class ProductTemplateInputDto
-{
-    public int? ProductId { get; set; }
-    public string? ProductName { get; set; }
-}
-
-public class ModelTemplateInputDto
-{
-    public int? ModelId { get; set; }
-    public string? ModelName { get; set; }
-    public string? OptionType { get; set; }
-}
-
-public class RateTemplateInputDto
-{
-    public int? RateId { get; set; }
-    public string? RateType { get; set; }
-    public int? ComponentRateId { get; set; }
-    public string? OptionType { get; set; }
-}
-
-// ========== DOMAIN MODELS ==========
-public record Product(int Id, string Name);
-public record Model(int Id, string Name, string Option);
-public record Rate(int Id, string Type, int ComponentId, string Option);
-
-// ========== REPOSITORY INTERFACES (Simulées) ==========
-public interface IProductRepository
-{
-    Task<Product> GetByIdAsync(int id);
-    Task<Product> GetByNameAsync(string name);
-}
-
-public interface IModelRepository
-{
-    Task<Model> GetByIdAsync(int id);
-    Task<Model> GetByNameAndOptionAsync(string name, string option);
-}
-
-public interface IRateRepository
-{
-    Task<Rate> GetByIdAsync(int id);
-    Task<Rate> GetByTypeAndComponentAsync(string rateType, int componentId, string optionType);
-}
-
-// ========== IMPLÉMENTATIONS FAKE DES REPOS ==========
-public class FakeProductRepository : IProductRepository
-{
-    public Task<Product> GetByIdAsync(int id) => Task.FromResult(new Product(id, $"Product_{id}"));
-    public Task<Product> GetByNameAsync(string name) => Task.FromResult(new Product(1, name));
-}
-
-public class FakeModelRepository : IModelRepository
-{
-    public Task<Model> GetByIdAsync(int id) => Task.FromResult(new Model(id, $"Model_{id}", "Call"));
-    public Task<Model> GetByNameAndOptionAsync(string name, string option) => Task.FromResult(new Model(1, name, option));
-}
-
-public class FakeRateRepository : IRateRepository
-{
-    public Task<Rate> GetByIdAsync(int id) => Task.FromResult(new Rate(id, "Fixed", 10, "Call"));
-    public Task<Rate> GetByTypeAndComponentAsync(string rateType, int componentId, string optionType) =>
-        Task.FromResult(new Rate(1, rateType, componentId, optionType));
-}
-
-// ========== INTERFACE GÉNÉRIQUE ==========
-public interface ITemplateResolver<TInput, TResult>
-{
-    Task<TResult> ResolveTemplateAsync(TInput input);
-}
-
-// ========== RÉSOLVEURS ==========
-public class ProductTemplateResolver : ITemplateResolver<ProductTemplateInputDto, Product>
-{
-    private readonly IProductRepository _repo;
-    public ProductTemplateResolver(IProductRepository repo) => _repo = repo;
-
-    public async Task<Product> ResolveTemplateAsync(ProductTemplateInputDto input)
+    public ExcelScenarioExtractor(DateTime situationDate)
     {
-        if (input.ProductId.HasValue)
-            return await _repo.GetByIdAsync(input.ProductId.Value);
-
-        if (!string.IsNullOrWhiteSpace(input.ProductName))
-            return await _repo.GetByNameAsync(input.ProductName);
-
-        throw new ArgumentException("Invalid product input");
-    }
-}
-
-public class ModelTemplateResolver : ITemplateResolver<ModelTemplateInputDto, Model>
-{
-    private readonly IModelRepository _repo;
-    public ModelTemplateResolver(IModelRepository repo) => _repo = repo;
-
-    public async Task<Model> ResolveTemplateAsync(ModelTemplateInputDto input)
-    {
-        if (input.ModelId.HasValue)
-            return await _repo.GetByIdAsync(input.ModelId.Value);
-
-        if (!string.IsNullOrWhiteSpace(input.ModelName) && !string.IsNullOrWhiteSpace(input.OptionType))
-            return await _repo.GetByNameAndOptionAsync(input.ModelName, input.OptionType);
-
-        throw new ArgumentException("Invalid model input");
-    }
-}
-
-public class RateTemplateResolver : ITemplateResolver<RateTemplateInputDto, Rate>
-{
-    private readonly IRateRepository _repo;
-    public RateTemplateResolver(IRateRepository repo) => _repo = repo;
-
-    public async Task<Rate> ResolveTemplateAsync(RateTemplateInputDto input)
-    {
-        if (input.RateId.HasValue)
-            return await _repo.GetByIdAsync(input.RateId.Value);
-
-        if (!string.IsNullOrWhiteSpace(input.RateType) && input.ComponentRateId.HasValue && !string.IsNullOrWhiteSpace(input.OptionType))
-            return await _repo.GetByTypeAndComponentAsync(input.RateType, input.ComponentRateId.Value, input.OptionType);
-
-        throw new ArgumentException("Invalid rate input");
-    }
-}
-
-// ========== FACTORY ==========
-public interface ITemplateResolverFactory
-{
-    object GetResolver(ResourceType type);
-}
-
-public class TemplateResolverFactory : ITemplateResolverFactory
-{
-    private readonly IServiceProvider _provider;
-
-    public TemplateResolverFactory(IServiceProvider provider) => _provider = provider;
-
-    public object GetResolver(ResourceType type) => type switch
-    {
-        ResourceType.Product => _provider.GetRequiredService<ITemplateResolver<ProductTemplateInputDto, Product>>(),
-        ResourceType.Model => _provider.GetRequiredService<ITemplateResolver<ModelTemplateInputDto, Model>>(),
-        ResourceType.Rate => _provider.GetRequiredService<ITemplateResolver<RateTemplateInputDto, Rate>>(),
-        _ => throw new NotSupportedException($"Unsupported type {type}")
-    };
-}
-
-// ========== CONTROLLER ==========
-[ApiController]
-[Route("api/templates")]
-public class TemplateController : ControllerBase
-{
-    private readonly ITemplateResolverFactory _resolverFactory;
-
-    public TemplateController(ITemplateResolverFactory resolverFactory) => _resolverFactory = resolverFactory;
-
-    [HttpPost("product")]
-    public async Task<IActionResult> ResolveProduct([FromBody] ProductTemplateInputDto input)
-    {
-        var resolver = (ITemplateResolver<ProductTemplateInputDto, Product>)_resolverFactory.GetResolver(ResourceType.Product);
-        var result = await resolver.ResolveTemplateAsync(input);
-        return Ok(result);
+        _situationDate = situationDate;
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
     }
 
-    [HttpPost("model")]
-    public async Task<IActionResult> ResolveModel([FromBody] ModelTemplateInputDto input)
+    public (ReefIndex, List<GroupeScenario>) Extract(string filePath)
     {
-        var resolver = (ITemplateResolver<ModelTemplateInputDto, Model>)_resolverFactory.GetResolver(ResourceType.Model);
-        var result = await resolver.ResolveTemplateAsync(input);
-        return Ok(result);
-    }
+        using var stream = File.Open(filePath, FileMode.Open, FileAccess.Read);
+        using var reader = ExcelReaderFactory.CreateReader(stream);
 
-    [HttpPost("rate")]
-    public async Task<IActionResult> ResolveRate([FromBody] RateTemplateInputDto input)
-    {
-        var resolver = (ITemplateResolver<RateTemplateInputDto, Rate>)_resolverFactory.GetResolver(ResourceType.Rate);
-        var result = await resolver.ResolveTemplateAsync(input);
-        return Ok(result);
+        var result = reader.AsDataSet();
+        var scenarioGroups = new List<GroupeScenario>();
+        ReefIndex reefIndex = null;
+
+        foreach (DataTable sheet in result.Tables)
+        {
+            if (sheet.TableName.Equals("doc", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Lecture de la ligne 1 (metadata)
+            string currency = sheet.Rows[0][0]?.ToString()?.Trim();
+            string source = sheet.Rows[0][1]?.ToString()?.Trim();
+            string tenor = sheet.Rows[0][3]?.ToString()?.Trim();
+            reefIndex ??= new ReefIndex { Currency = currency, Source = source, Tenor = tenor };
+
+            // Ligne 2 : détection des dates et de la date d’horizon
+            var horizonDates = new List<DateTime>();
+            int horizonColIndex = -1;
+
+            for (int col = 1; col < sheet.Columns.Count; col++)
+            {
+                if (DateTime.TryParse(sheet.Rows[1][col]?.ToString(), out var date))
+                {
+                    horizonDates.Add(date);
+                    if (horizonColIndex == -1 && date >= _situationDate)
+                    {
+                        horizonColIndex = col;
+                    }
+                }
+            }
+
+            if (horizonColIndex == -1)
+                throw new InvalidOperationException("Aucune date d'horizon trouvée supérieure ou égale à la date de situation.");
+
+            // Traitement des lignes à partir de la 3e (index 2)
+            string lastScenarioLabel = null;
+            int currentNumScenario = 0;
+
+            for (int row = 2; row < sheet.Rows.Count; row++)
+            {
+                var scenarioLabel = sheet.Rows[row][0]?.ToString()?.Trim();
+
+                if (string.IsNullOrWhiteSpace(scenarioLabel))
+                    continue;
+
+                if (scenarioLabel != lastScenarioLabel)
+                {
+                    currentNumScenario = 0;
+                    lastScenarioLabel = scenarioLabel;
+                }
+
+                for (int col = horizonColIndex; col < sheet.Columns.Count; col++)
+                {
+                    var cellValue = sheet.Rows[row][col]?.ToString()?.Trim();
+
+                    if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double rate))
+                    {
+                        int horizon = col - horizonColIndex;
+
+                        scenarioGroups.Add(new GroupeScenario
+                        {
+                            ScenarioLabel = scenarioLabel,
+                            ScenarioCode = scenarioLabel, // Supposé égal à label ici
+                            Horizon = horizon,
+                            NumScenario = currentNumScenario,
+                            Rate = rate
+                        });
+
+                        currentNumScenario++;
+                    }
+                }
+            }
+        }
+
+        return (reefIndex, scenarioGroups);
     }
 }
-
-// ========== PROGRAM ==========
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddControllers();
-
-builder.Services.AddScoped<IProductRepository, FakeProductRepository>();
-builder.Services.AddScoped<IModelRepository, FakeModelRepository>();
-builder.Services.AddScoped<IRateRepository, FakeRateRepository>();
-
-builder.Services.AddScoped<ITemplateResolver<ProductTemplateInputDto, Product>, ProductTemplateResolver>();
-builder.Services.AddScoped<ITemplateResolver<ModelTemplateInputDto, Model>, ModelTemplateResolver>();
-builder.Services.AddScoped<ITemplateResolver<RateTemplateInputDto, Rate>, RateTemplateResolver>();
-builder.Services.AddScoped<ITemplateResolverFactory, TemplateResolverFactory>();
-
-var app = builder.Build();
-app.MapControllers();
-app.Run();
