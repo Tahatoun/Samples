@@ -1,81 +1,142 @@
-using Xunit;
-using Microsoft.EntityFrameworkCore;
-using System.Threading.Tasks;
-using YourNamespace.Repositories;
-using YourNamespace.Models;
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace YourNamespace.Tests.Repositories
+namespace PipelineSample
 {
-    public class EntitiesRepositoryTests
+    // 🔹 Niveau de gravité des erreurs
+    public enum ErrorSeverity
     {
-        private ModelContext GetInMemoryContext()
+        Warning,
+        Error,
+        Critical
+    }
+
+    // 🔹 Structure typée d’une erreur
+    public record Error(string Code, string Message, string? Step = null, ErrorSeverity Severity = ErrorSeverity.Error);
+
+    // 🔹 Résultat d'une exécution de step (pattern Result monadique)
+    public class Result<T>
+    {
+        public T? Value { get; }
+        public List<Error> Errors { get; } = new();
+
+        public bool IsSuccess => !Errors.Any(e => e.Severity is ErrorSeverity.Error or ErrorSeverity.Critical);
+
+        private Result(T? value, IEnumerable<Error> errors)
         {
-            var options = new DbContextOptionsBuilder<ModelContext>()
-                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
-                .Options;
-
-            var context = new ModelContext(options);
-
-            // Ajout de données de test
-            var entity = new Entity { Id = 1, Name = "TestEntity" };
-            var option = new Option { Id = 1, Name = "TestOption" };
-            var version = new Version { Id = 1, EntityId = 1, OptionId = 1, Label = "v1" };
-
-            context.Entities.Add(entity);
-            context.Options.Add(option);
-            context.Versions.Add(version);
-            context.SaveChanges();
-
-            return context;
+            Value = value;
+            Errors.AddRange(errors);
         }
 
-        [Fact]
-        public async Task GetByIdAsync_ShouldReturnEntity_WhenEntityExists()
+        public static Result<T> Success(T value) => new(value, Array.Empty<Error>());
+
+        public static Result<T> Failure(IEnumerable<Error> errors) => new(default, errors);
+
+        public static Result<T> From(T value, IEnumerable<Error> errors) => new(value, errors);
+
+        public void AddError(Error error) => Errors.Add(error);
+
+        public void AddErrors(IEnumerable<Error> errors) => Errors.AddRange(errors);
+    }
+
+    // 🔹 Contrat de step
+    public interface IStep<T>
+    {
+        Task<Result<T>> ExecuteAsync(T input, CancellationToken cancellationToken = default);
+    }
+
+    // 🔹 Exemple de step de validation
+    public class ValidationStep : IStep<InputContext>
+    {
+        public Task<Result<InputContext>> ExecuteAsync(InputContext input, CancellationToken cancellationToken = default)
         {
-            // Arrange
-            using var context = GetInMemoryContext();
-            var repository = new EntitiesRepository(context);
+            var errors = new List<Error>();
 
-            // Act
-            var result = await repository.GetByIdAsync(1);
+            if (string.IsNullOrWhiteSpace(input.Tenor))
+                errors.Add(new Error("TENOR_MISSING", "Le champ Tenor est requis", "ValidationStep"));
 
-            // Assert
-            Assert.NotNull(result);
-            Assert.Equal("TestEntity", result.Name);
+            if (input.MaturityDate < DateTime.Today)
+                errors.Add(new Error("INVALID_DATE", "La date de maturité est dans le passé", "ValidationStep"));
+
+            return Task.FromResult(Result<InputContext>.From(input, errors));
+        }
+    }
+
+    // 🔹 Le moteur de pipeline
+    public class PipelineExecutor<T>
+    {
+        private readonly List<IStep<T>> _steps;
+
+        public PipelineExecutor(IEnumerable<IStep<T>> steps)
+        {
+            _steps = steps.ToList();
         }
 
-        [Fact]
-        public async Task GetEntityOptionVersions_ShouldReturnCorrectVersion()
+        public async Task<Result<T>> RunAsync(T initialInput, CancellationToken cancellationToken = default)
         {
-            // Arrange
-            using var context = GetInMemoryContext();
-            var repository = new EntitiesRepository(context);
-            var entity = await context.Entities.FirstAsync();
-            var option = await context.Options.FirstAsync();
+            var currentInput = initialInput;
+            var allErrors = new List<Error>();
 
-            // Act
-            var version = await repository.GetEntityOptionVersions(entity, option);
+            foreach (var step in _steps)
+            {
+                var result = await step.ExecuteAsync(currentInput, cancellationToken);
+                allErrors.AddRange(result.Errors);
 
-            // Assert
-            Assert.NotNull(version);
-            Assert.Equal("v1", version.Label);
+                if (!result.IsSuccess)
+                    break;
+
+                currentInput = result.Value!;
+            }
+
+            return Result<T>.From(currentInput, allErrors);
         }
+    }
 
-        [Fact]
-        public async Task GetEntityOptionVersions_ShouldReturnNull_WhenNoMatch()
+    // 🔹 Le modèle d'entrée pour les steps
+    public class InputContext
+    {
+        public string Tenor { get; set; } = string.Empty;
+        public DateTime MaturityDate { get; set; }
+    }
+
+    // 🔹 Exemple de simulation d'utilisation
+    public static class Program
+    {
+        public static async Task Main()
         {
-            // Arrange
-            using var context = GetInMemoryContext();
-            var repository = new EntitiesRepository(context);
-            var entity = await context.Entities.FirstAsync();
-            var nonExistingOption = new Option { Id = 99 };
+            var steps = new List<IStep<InputContext>>
+            {
+                new ValidationStep()
+                // Tu peux ajouter d'autres steps ici
+            };
 
-            // Act
-            var version = await repository.GetEntityOptionVersions(entity, nonExistingOption);
+            var pipeline = new PipelineExecutor<InputContext>(steps);
 
-            // Assert
-            Assert.Null(version);
+            var input = new InputContext
+            {
+                Tenor = "", // volontairement vide pour déclencher une erreur
+                MaturityDate = DateTime.Today.AddDays(-1) // date invalide
+            };
+
+            var result = await pipeline.RunAsync(input);
+
+            if (!result.IsSuccess)
+            {
+                Console.WriteLine("❌ Erreurs détectées :");
+                foreach (var group in result.Errors.GroupBy(e => e.Step ?? "UnknownStep"))
+                {
+                    Console.WriteLine($"- Étape : {group.Key}");
+                    foreach (var error in group)
+                        Console.WriteLine($"   • [{error.Code}] {error.Message} (Gravité : {error.Severity})");
+                }
+            }
+            else
+            {
+                Console.WriteLine("✅ Pipeline exécuté avec succès !");
+            }
         }
     }
 }
