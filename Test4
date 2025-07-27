@@ -1,0 +1,29 @@
+using System;
+using System.Runtime.Serialization;
+
+[Serializable]
+public class ResultatChargement : ISerializable
+{
+    public int LoadedResults { get; set; }
+    public string Status { get; set; }
+
+    public ResultatChargement(int loadedResults, string status)
+    {
+        LoadedResults = loadedResults;
+        Status = status;
+    }
+
+    // Constructeur de désérialisation
+    protected ResultatChargement(SerializationInfo info, StreamingContext context)
+    {
+        LoadedResults = info.GetInt32(nameof(LoadedResults));
+        Status = info.GetString(nameof(Status)) ?? string.Empty;
+    }
+
+    // Méthode appelée lors de la sérialisation
+    public void GetObjectData(SerializationInfo info, StreamingContext context)
+    {
+        info.AddValue(nameof(LoadedResults), LoadedResults);
+        info.AddValue(nameof(Status), Status);
+    }
+}
