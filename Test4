@@ -1,29 +1,28 @@
-using System;
-using System.Runtime.Serialization;
-
-[Serializable]
-public class ResultatChargement : ISerializable
+public static DateTime ParseExcelDate(object value)
 {
-    public int LoadedResults { get; set; }
-    public string Status { get; set; }
+    if (value == null)
+        throw new ArgumentNullException(nameof(value));
 
-    public ResultatChargement(int loadedResults, string status)
+    if (value is double excelSerialNumber)
     {
-        LoadedResults = loadedResults;
-        Status = status;
+        // Excel stocke les dates en tant que nombres à partir du 1er janvier 1900
+        return DateTime.FromOADate(excelSerialNumber);
     }
 
-    // Constructeur de désérialisation
-    protected ResultatChargement(SerializationInfo info, StreamingContext context)
+    if (value is int excelInt)
     {
-        LoadedResults = info.GetInt32(nameof(LoadedResults));
-        Status = info.GetString(nameof(Status)) ?? string.Empty;
+        return DateTime.FromOADate(excelInt);
     }
 
-    // Méthode appelée lors de la sérialisation
-    public void GetObjectData(SerializationInfo info, StreamingContext context)
+    if (value is string str)
     {
-        info.AddValue(nameof(LoadedResults), LoadedResults);
-        info.AddValue(nameof(Status), Status);
+        if (DateTime.TryParse(str, out var result))
+        {
+            return result;
+        }
+
+        throw new FormatException($"String '{str}' is not a valid date format.");
     }
+
+    throw new FormatException($"Unsupported type: {value.GetType()}");
 }
