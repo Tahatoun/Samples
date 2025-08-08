@@ -1,21 +1,4 @@
-Bonjour Françoise,
+EXPLAIN PLAN FOR
+INSERT /*+ APPEND */ INTO grp_scenario SELECT * FROM source_table;
 
-Merci pour ton retour.
-
-Concernant le point en question, voici ce que nous souhaitons aborder lors de la réunion :
-	1.	Nous ne souhaitons pas de démonstration de l’import des taux.
-	2.	Nous avons constaté que le code d’import insère une nouvelle ligne dans la table REF_INDEX lorsque le code INDEX présent dans l’Excel chargé par l’utilisateur n’existe pas déjà en base.
-	3.	En revanche, si le code INDEX est déjà présent en base, alors toutes les autres valeurs spécifiées par l’utilisateur dans l’Excel (nominal, source, tenor, currency) sont ignorées. Ce sont les valeurs existantes en base (associées au code INDEX) qui sont prises en compte.
-
-Sur cette base, voici les points sur lesquels nous aimerions avoir des éclaircissements concernant le comportement du système :
-	1.	Est-ce que l’insertion automatique de nouvelles lignes dans REF_INDEX est un comportement voulu ?
-	2.	Le système se base uniquement sur le code INDEX pour déterminer la ligne à utiliser dans REF_INDEX. Par conséquent, si l’utilisateur indique une currency “USD” dans l’Excel mais que le code INDEX (par exemple LIBOR3_1) correspond en base à une ligne avec la currency “EUR”, c’est cette dernière qui sera retenue.
-→ Est-ce que ce comportement est attendu ?
-	3.	En cas de doublons dans la table REF_INDEX (plusieurs lignes avec le même code INDEX), le code sélectionne arbitrairement une ligne sans se soucier des autres champs (nominal, source, tenor, currency).
-→ Est-ce que ce comportement est également voulu ?
-	4.	Enfin, est-il normal que le champ INDEX_CODE ne soit soumis à aucune contrainte d’unicité ? Dans les données que nous avons, nous avons observé plusieurs lignes portant le même code INDEX. Même si cela semble provenir d’un environnement de développement, cela pose question en l’absence de contrainte explicite.
-
-Merci par avance pour ton éclairage sur ces points.
-
-Bien cordialement,
-[Ton prénom ou nom complet]
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
