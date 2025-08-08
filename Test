@@ -1,95 +1,102 @@
-using System.Data;
-using ExcelDataReader;
+-- =============================================
+-- Fichier : Monitor_DirectPathLoad.sql
+-- Description : Requêtes pour vérifier l'utilisation
+--               du Direct Path Load pendant un Bulk Insert
+-- =============================================
 
-public class ExcelScenarioExtractor
-{
-    private readonly DateTime _situationDate;
+-- 1. Identifier ta session Oracle en cours (exemple avec TON_SCHEMA)
+-- Remplace TON_SCHEMA par le nom de ton schéma Oracle
 
-    public ExcelScenarioExtractor(DateTime situationDate)
-    {
-        _situationDate = situationDate;
-        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
-    }
+SELECT sid, serial#
+FROM v$session
+WHERE username = 'TON_SCHEMA';
 
-    public (ReefIndex, List<GroupeScenario>) Extract(string filePath)
-    {
-        using var stream = File.Open(filePath, FileMode.Open, FileAccess.Read);
-        using var reader = ExcelReaderFactory.CreateReader(stream);
+-- Note : Note les valeurs SID et SERIAL# retournées pour la suite
 
-        var result = reader.AsDataSet();
-        var scenarioGroups = new List<GroupeScenario>();
-        ReefIndex reefIndex = null;
+-------------------------------------------------------------------------------
 
-        foreach (DataTable sheet in result.Tables)
-        {
-            if (sheet.TableName.Equals("doc", StringComparison.OrdinalIgnoreCase))
-                continue;
+-- 2. Surveiller les opérations longues de type Direct Path Load en cours
+-- Exécute cette requête pendant que ton Bulk Insert est en cours
 
-            // Lecture de la ligne 1 (metadata)
-            string currency = sheet.Rows[0][0]?.ToString()?.Trim();
-            string source = sheet.Rows[0][1]?.ToString()?.Trim();
-            string tenor = sheet.Rows[0][3]?.ToString()?.Trim();
-            reefIndex ??= new ReefIndex { Currency = currency, Source = source, Tenor = tenor };
+SELECT opname, start_time, elapsed_seconds, sofar, totalwork, units, message
+FROM v$session_longops
+WHERE opname LIKE '%direct path load%'
+  AND sofar != totalwork;
 
-            // Ligne 2 : détection des dates et de la date d’horizon
-            var horizonDates = new List<DateTime>();
-            int horizonColIndex = -1;
+-------------------------------------------------------------------------------
 
-            for (int col = 1; col < sheet.Columns.Count; col++)
-            {
-                if (DateTime.TryParse(sheet.Rows[1][col]?.ToString(), out var date))
-                {
-                    horizonDates.Add(date);
-                    if (horizonColIndex == -1 && date >= _situationDate)
-                    {
-                        horizonColIndex = col;
-                    }
-                }
-            }
+-- 3. Activer le trace SQL sur ta session
+-- Remplace <SID> et <SERIAL#> par les valeurs obtenues à l'étape 1
 
-            if (horizonColIndex == -1)
-                throw new InvalidOperationException("Aucune date d'horizon trouvée supérieure ou égale à la date de situation.");
+BEGIN
+  DBMS_MONITOR.SESSION_TRACE_ENABLE(
+    sid => <SID>,
+    serial# => <SERIAL#>,
+    waits => TRUE,
+    binds => TRUE
+  );
+END;
+/
 
-            // Traitement des lignes à partir de la 3e (index 2)
-            string lastScenarioLabel = null;
-            int currentNumScenario = 0;
+-- Lancer ensuite ton Bulk Insert dans ton application ou SQL Developer
 
-            for (int row = 2; row < sheet.Rows.Count; row++)
-            {
-                var scenarioLabel = sheet.Rows[row][0]?.ToString()?.Trim();
+-------------------------------------------------------------------------------
 
-                if (string.IsNullOrWhiteSpace(scenarioLabel))
-                    continue;
+-- 4. Une fois l'opération terminée, désactive le trace
 
-                if (scenarioLabel != lastScenarioLabel)
-                {
-                    currentNumScenario = 0;
-                    lastScenarioLabel = scenarioLabel;
-                }
+BEGIN
+  DBMS_MONITOR.SESSION_TRACE_DISABLE(
+    sid => <SID>,
+    serial# => <SERIAL#>
+  );
+END;
+/
 
-                for (int col = horizonColIndex; col < sheet.Columns.Count; col++)
-                {
-                    var cellValue = sheet.Rows[row][col]?.ToString()?.Trim();
+-------------------------------------------------------------------------------
 
-                    if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double rate))
-                    {
-                        int horizon = col - horizonColIndex;
+-- 5. Analyse du fichier trace généré
+-- Le fichier trace se trouve dans le répertoire USER_DUMP_DEST défini par Oracle
+-- Utilise l’outil TKPROF pour analyser ce fichier
+-- Exemple d’utilisation TKPROF (à lancer sur le serveur Oracle) :
+-- tkprof <trace_file.trc> output=<output_file.txt> explain=TON_SCHEMA sys=no sort=exeela
 
-                        scenarioGroups.Add(new GroupeScenario
-                        {
-                            ScenarioLabel = scenarioLabel,
-                            ScenarioCode = scenarioLabel, // Supposé égal à label ici
-                            Horizon = horizon,
-                            NumScenario = currentNumScenario,
-                            Rate = rate
-                        });
+-------------------------------------------------------------------------------
 
-                        currentNumScenario++;
-                    }
-                }
-            }
-        }
+-- 6. Requête optionnelle pour consulter les plans SQL récents
+-- Cela peut aider à voir si un Direct Path Insert a été utilisé
 
-        return (reefIndex, scenarioGroups);
-    }
-}
+SELECT sql_id, operation, options, object_name
+FROM dba_hist_sql_plan
+WHERE operation LIKE '%INSERT%'
+  AND options LIKE '%DIRECT%'
+  AND object_owner = 'TON_SCHEMA'
+ORDER BY last_active_time DESC;
+
+-------------------------------------------------------------------------------
+
+-- 7. Requête pour voir les sessions bloquées ou ressources occupées
+-- Si tu rencontres des erreurs ORA-00054 (resource busy), cette requête peut aider
+
+SELECT
+  blocking_session,
+  sid,
+  serial#,
+  wait_class,
+  event,
+  seconds_in_wait
+FROM v$session
+WHERE blocking_session IS NOT NULL;
+
+-------------------------------------------------------------------------------
+
+-- 8. Vérifier les contraintes qui pourraient empêcher le Direct Path Load
+-- Liste des contraintes ENABLED sur une table
+
+SELECT constraint_name, constraint_type, status
+FROM all_constraints
+WHERE table_name = 'NOM_DE_TA_TABLE'
+  AND owner = 'TON_SCHEMA';
+
+-------------------------------------------------------------------------------
+
+-- Fin du fichier Monitor_DirectPathLoad.sql
