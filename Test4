@@ -2,3 +2,39 @@ EXPLAIN PLAN FOR
 INSERT /*+ APPEND */ INTO grp_scenario SELECT * FROM source_table;
 
 SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+-- 1️⃣ Désactiver toutes les contraintes FK qui bloquent le Direct Path
+BEGIN
+   FOR c IN (
+      SELECT constraint_name
+      FROM user_constraints
+      WHERE table_name = 'GRP_SCENARIO'
+        AND constraint_type = 'R'  -- 'R' = Foreign Key
+        AND status = 'ENABLED'
+   ) LOOP
+      EXECUTE IMMEDIATE 'ALTER TABLE GRP_SCENARIO DISABLE CONSTRAINT ' || c.constraint_name;
+   END LOOP;
+END;
+/
+
+-- 2️⃣ (Facultatif) Forcer l'utilisation du Direct Path dans SQL*Loader ou Bulk Insert
+-- Si tu passes par SQL*Loader : OPTIONS(DIRECT=TRUE)
+-- Pour EFCore.BulkExtensions, direct path = pas de contraintes + pas de triggers + pas d'index inutiles
+
+-- 3️⃣ Insérer tes données ici
+-- Exemple : appel EFCore.BulkExtensions ou SQL*Loader
+-- INSERT /*+ APPEND */ INTO GRP_SCENARIO (...) VALUES (...);
+
+-- 4️⃣ Réactiver toutes les contraintes FK avec validation
+BEGIN
+   FOR c IN (
+      SELECT constraint_name
+      FROM user_constraints
+      WHERE table_name = 'GRP_SCENARIO'
+        AND constraint_type = 'R'
+        AND status = 'DISABLED'
+   ) LOOP
+      EXECUTE IMMEDIATE 'ALTER TABLE GRP_SCENARIO ENABLE VALIDATE CONSTRAINT ' || c.constraint_name;
+   END LOOP;
+END;
+/
