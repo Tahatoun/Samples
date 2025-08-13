@@ -1,53 +1,82 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Reflection;
 
 public class ObjectDataReader<T> : IDataReader
 {
     private readonly IEnumerator<T> _enumerator;
     private readonly List<PropertyInfo> _properties;
+    private readonly Dictionary<string, int> _nameToIndex;
 
     public ObjectDataReader(IEnumerable<T> data)
     {
         _enumerator = data.GetEnumerator();
-        _properties = new List<PropertyInfo>(typeof(T).GetProperties(BindingFlags.Instance | BindingFlags.Public));
+        _properties = typeof(T)
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .ToList();
+        _nameToIndex = _properties
+            .Select((p, i) => new { p.Name, Index = i })
+            .ToDictionary(x => x.Name, x => x.Index, StringComparer.OrdinalIgnoreCase);
     }
 
+    // ---- Accès indexé ----
+    public object this[int i] => GetValue(i);
+
+    public object this[string name] => GetValue(GetOrdinal(name));
+
+    // ---- Méthodes principales ----
     public object GetValue(int i) => _properties[i].GetValue(_enumerator.Current) ?? DBNull.Value;
+
     public int FieldCount => _properties.Count;
+
     public string GetName(int i) => _properties[i].Name;
+
+    public int GetOrdinal(string name) => _nameToIndex[name];
+
+    public int GetValues(object[] values)
+    {
+        int count = Math.Min(values.Length, FieldCount);
+        for (int i = 0; i < count; i++)
+            values[i] = GetValue(i);
+        return count;
+    }
+
     public bool Read() => _enumerator.MoveNext();
 
-    public void Dispose() => _enumerator.Dispose();
-    public void Close() => Dispose();
+    // ---- Types et conversions ----
+    public Type GetFieldType(int i) => _properties[i].PropertyType;
+    public string GetDataTypeName(int i) => GetFieldType(i).Name;
+    public bool IsDBNull(int i) => GetValue(i) == DBNull.Value;
 
-    // Méthodes inutilisées pour le BulkCopy
-    public bool NextResult() => false;
-    public int Depth => 0;
-    public bool IsClosed => false;
-    public int RecordsAffected => -1;
-    public DataTable GetSchemaTable() => null;
     public bool GetBoolean(int i) => (bool)GetValue(i);
     public byte GetByte(int i) => (byte)GetValue(i);
     public long GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length) => throw new NotSupportedException();
     public char GetChar(int i) => (char)GetValue(i);
     public long GetChars(int i, long fieldoffset, char[] buffer, int bufferoffset, int length) => throw new NotSupportedException();
-    public IDataReader GetData(int i) => throw new NotSupportedException();
-    public string GetDataTypeName(int i) => GetFieldType(i).Name;
     public DateTime GetDateTime(int i) => (DateTime)GetValue(i);
     public decimal GetDecimal(int i) => (decimal)GetValue(i);
     public double GetDouble(int i) => (double)GetValue(i);
-    public Type GetFieldType(int i) => _properties[i].PropertyType;
     public float GetFloat(int i) => (float)GetValue(i);
     public Guid GetGuid(int i) => (Guid)GetValue(i);
     public short GetInt16(int i) => (short)GetValue(i);
     public int GetInt32(int i) => (int)GetValue(i);
     public long GetInt64(int i) => (long)GetValue(i);
     public string GetString(int i) => (string)GetValue(i);
-    public int GetOrdinal(string name) => _properties.FindIndex(p => p.Name == name);
-    public bool IsDBNull(int i) => GetValue(i) == DBNull.using Oracle.ManagedDataAccess.Client;
+
+    // ---- Méthodes inutilisées dans BulkCopy mais requises par IDataReader ----
+    public DataTable GetSchemaTable() => null;
+    public bool NextResult() => false;
+    public int Depth => 0;
+    public bool IsClosed => false;
+    public int RecordsAffected => -1;
+    public void Close() => Dispose();
+
+    public void Dispose() => _enumerator.Dispose();
+}
+
+using Oracle.ManagedDataAccess.Client;
 using System;
 using System.Collections.Generic;
 
