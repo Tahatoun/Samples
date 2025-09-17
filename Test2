@@ -1,106 +1,71 @@
-Parfait, merci pour le contexte détaillé. Je vais te préparer un document structuré type justification de sizing, qui reprend :
-	1.	le cas Oracle (simple : reprise d’un existant + estimation 1/4 sur les environnements hors prod),
-	2.	le cas SQL Server (plus d’analyse : tables de paramétrage, historisation, gestion des fichiers Excel, liens avec Oracle).
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
-⸻
+namespace MyProject.Logging
+{
+    // ✅ Classe qui fait tout : log entrée, sortie, exception, durée
+    public class LoggingFilter : IActionFilter
+    {
+        private readonly ILogger<LoggingFilter> _logger;
+        private Stopwatch _stopwatch;
 
-📑 Note de justification du sizing Oracle & SQL Server
+        public LoggingFilter(ILogger<LoggingFilter> logger)
+        {
+            _logger = logger;
+        }
 
-1. Schéma Oracle
+        public void OnActionExecuting(ActionExecutingContext context)
+        {
+            _stopwatch = Stopwatch.StartNew();
 
-1.1. Contexte
-	•	Reprise du schéma AGAP existant.
-	•	Taille de référence actuelle : 1,5 To (source : échanges avec Françoise, estimation BCEF = 60–70 % de la volumétrie totale).
-	•	Objectif : conserver des performances équivalentes → sizing identique.
+            var actionName = context.ActionDescriptor.DisplayName;
+            var parameters = context.ActionArguments;
 
-1.2. Justification par environnement
-	•	Production (NRT, CGN) : doivent rester ISO avec l’existant → 1,5 To.
-	•	Environnements hors prod (DEV, TEST, INT, etc.) : application de la règle 1/4 (soit ~375 Go par environnement), comme déjà pratiqué chez nos homologues.
+            _logger.LogInformation("➡️ Start {Action} with params: {@Params}", actionName, parameters);
+        }
 
-1.3. Requête Oracle pour obtenir la volumétrie d’un schéma
+        public void OnActionExecuted(ActionExecutedContext context)
+        {
+            _stopwatch.Stop();
 
-À exécuter pour valider la taille du schéma existant :
+            var actionName = context.ActionDescriptor.DisplayName;
+            var elapsedMs = _stopwatch.ElapsedMilliseconds;
 
-2. Schéma SQL Server
+            if (context.Exception == null)
+            {
+                _logger.LogInformation("✅ End {Action} (took {Elapsed} ms)", actionName, elapsedMs);
+            }
+            else
+            {
+                _logger.LogError(context.Exception, "❌ {Action} failed after {Elapsed} ms", actionName, elapsedMs);
+            }
+        }
+    }
 
-2.1. Contexte
-	•	Nouveau schéma SQL Server mis en place pour :
-	1.	Paramétrage : reprise partielle depuis Data Layer (5 tables de paramétrage + 2 tables Setup Management).
-	2.	Historisation : suivi des lancements utilisateurs (processus, fichiers chargés, liens avec Oracle).
-	3.	Gestion des fichiers Excel : stockage des métadonnées pour tracer les fichiers chargés (fichiers déposés sur un share de 2 To).
+    // ✅ Classe d’extension pour enregistrer facilement le filtre globalement
+    public static class LoggingFilterExtensions
+    {
+        public static IServiceCollection AddLoggingFilter(this IServiceCollection services)
+        {
+            services.AddScoped<LoggingFilter>(); // Inject logger automatiquement
+            services.AddControllers(options =>
+            {
+                options.Filters.AddService<LoggingFilter>();
+            });
+            return services;
+        }
 
-2.2. Estimation volumétrique
+        public static IApplicationBuilder UseLoggingFilter(this IApplicationBuilder app)
+        {
+            // Le filtre est injecté via AddControllers, rien de spécial ici
+            return app;
+        }
+    }
+}
 
-a) Tables de paramétrage
-	•	5 tables paramétrage Data Layer
-	•	Nature : tables de référence (mapping, correspondances).
-	•	Estimation : 5 000 – 20 000 lignes par table.
-	•	Taille : < 50 Mo chacune.
-	•	2 tables Setup Management
-	•	Nature : saisies utilisateurs ponctuelles.
-	•	Estimation : < 10 000 lignes/table.
-	•	Taille : < 10 Mo chacune.
 
-➡️ Total paramétrage ≈ 200 Mo max (très faible).
-
-⸻
-
-b) Tables d’historisation
-
-Proposition de tables principales :
-	1.	ProcessExecution
-	•	Champs proposés :
-	•	ProcessExecutionId (PK)
-	•	ProcessName
-	•	StartDate
-	•	EndDate
-	•	Status (Succès/Échec/En cours)
-	•	UserId (qui a lancé le process)
-	•	ElapsedTime
-	•	Estimation : 50–100 exécutions/jour → ~30 000 lignes/an → 300 000 lignes sur 10 ans.
-	•	Taille ≈ 300 Mo.
-	2.	ProcessDetail (liens vers les entités traitées dans Oracle)
-	•	ProcessDetailId
-	•	ProcessExecutionId (FK)
-	•	OracleEntityId (ID de la donnée dans Oracle)
-	•	RowCount (nombre de lignes traitées)
-	•	StatusDetail
-	•	Estimation : 100–1 000 lignes par process.
-	•	Taille ≈ 5–10 Go sur 10 ans.
-	3.	ProcessFile (gestion des fichiers Excel liés)
-	•	ProcessFileId
-	•	ProcessExecutionId (FK)
-	•	FileName
-	•	FilePath (share de 2 To)
-	•	Checksum (hash pour intégrité)
-	•	UploadDate
-	•	Estimation : 1–2 fichiers par process, fichiers stockés en dehors de la DB → seules métadonnées en base.
-	•	Taille ≈ 1 Go sur 10 ans.
-
-➡️ Total historisation ≈ 15 Go sur 10 ans.
-
-⸻
-
-2.3. Dimensionnement global SQL Server
-	•	Paramétrage : ~200 Mo.
-	•	Historisation (10 ans) : ~15 Go.
-	•	Overhead (index, logs, marge) : ×2 → ~30–40 Go à prévoir.
-
-➡️ Sizing SQL Server recommandé : 50 Go initialement, avec possibilité d’extension.
-
-3. Synthèse finale
-
-Environnement
-Oracle (schéma)
-SQL Server (schéma)
-Partage fichiers Excel
-NRT / CGN
-1,5 To
-50 Go
-2 To (share)
-DEV / TEST
-375 Go
-20 Go
-2 To (share commun)
-
+builder.Services.AddLoggingFilter();
 
