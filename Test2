@@ -81,3 +81,23 @@ builder.Services.Decorate(typeof(object), (inner, provider) =>
 
     return method!.Invoke(null, new[] { inner, logger });
 });
+
+// Récupérer tous les services enregistrés
+var servicesToDecorate = builder.Services
+    .Where(d => d.ServiceType.IsInterface && d.ImplementationType != null)
+    .ToList();
+
+foreach (var service in servicesToDecorate)
+{
+    builder.Services.Decorate(service.ServiceType, (inner, provider) =>
+    {
+        var loggerType = typeof(ILogger<>).MakeGenericType(service.ServiceType);
+        var logger = provider.GetRequiredService(loggerType);
+
+        var method = typeof(LoggingDecorator<>)
+            .MakeGenericType(service.ServiceType)
+            .GetMethod("Create", BindingFlags.Public | BindingFlags.Static);
+
+        return method!.Invoke(null, new[] { inner, logger })!;
+    });
+}
