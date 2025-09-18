@@ -1,71 +1,83 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Mvc.Filters;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using System.Diagnostics;
-
-namespace MyProject.Logging
+public class LoggingDecorator<T> : DispatchProxy
 {
-    // ✅ Classe qui fait tout : log entrée, sortie, exception, durée
-    public class LoggingFilter : IActionFilter
+    private T _decorated = default!;
+    private ILogger<T> _logger = default!;
+
+    public static T Create(T decorated, ILogger<T> logger)
     {
-        private readonly ILogger<LoggingFilter> _logger;
-        private Stopwatch _stopwatch;
+        object proxy = Create<T, LoggingDecorator<T>>();
+        ((LoggingDecorator<T>)proxy)._decorated = decorated;
+        ((LoggingDecorator<T>)proxy)._logger = logger;
+        return (T)proxy;
+    }
 
-        public LoggingFilter(ILogger<LoggingFilter> logger)
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
+        if (targetMethod == null) return null;
+
+        try
         {
-            _logger = logger;
-        }
+            _logger.LogInformation("➡️ Appel {Method} avec args {@Args}",
+                targetMethod.Name, args);
 
-        public void OnActionExecuting(ActionExecutingContext context)
-        {
-            _stopwatch = Stopwatch.StartNew();
+            var result = targetMethod.Invoke(_decorated, args ?? Array.Empty<object?>());
 
-            var actionName = context.ActionDescriptor.DisplayName;
-            var parameters = context.ActionArguments;
-
-            _logger.LogInformation("➡️ Start {Action} with params: {@Params}", actionName, parameters);
-        }
-
-        public void OnActionExecuted(ActionExecutedContext context)
-        {
-            _stopwatch.Stop();
-
-            var actionName = context.ActionDescriptor.DisplayName;
-            var elapsedMs = _stopwatch.ElapsedMilliseconds;
-
-            if (context.Exception == null)
+            if (result is Task task)
             {
-                _logger.LogInformation("✅ End {Action} (took {Elapsed} ms)", actionName, elapsedMs);
+                return InterceptAsync(task, targetMethod);
             }
-            else
-            {
-                _logger.LogError(context.Exception, "❌ {Action} failed after {Elapsed} ms", actionName, elapsedMs);
-            }
+
+            _logger.LogInformation("⬅️ Retour de {Method} = {@Result}",
+                targetMethod.Name, result);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Exception dans {Method}", targetMethod.Name);
+            throw;
         }
     }
 
-    // ✅ Classe d’extension pour enregistrer facilement le filtre globalement
-    public static class LoggingFilterExtensions
+    private async Task InterceptAsync(Task task, MethodInfo targetMethod)
     {
-        public static IServiceCollection AddLoggingFilter(this IServiceCollection services)
+        try
         {
-            services.AddScoped<LoggingFilter>(); // Inject logger automatiquement
-            services.AddControllers(options =>
-            {
-                options.Filters.AddService<LoggingFilter>();
-            });
-            return services;
+            await task.ConfigureAwait(false);
+            _logger.LogInformation("⬅️ Task {Method} terminée", targetMethod.Name);
         }
-
-        public static IApplicationBuilder UseLoggingFilter(this IApplicationBuilder app)
+        catch (Exception ex)
         {
-            // Le filtre est injecté via AddControllers, rien de spécial ici
-            return app;
+            _logger.LogError(ex, "❌ Exception dans {Method}", targetMethod.Name);
+            throw;
         }
     }
 }
 
+using Scrutor;
 
-builder.Services.AddLoggingFilter();
+var builder = WebApplication.CreateBuilder(args);
 
+// 🔹 Scanner tous les services métiers
+builder.Services.Scan(scan => scan
+    .FromAssemblyOf<IMyService>()                // met une classe de référence de ton assembly
+    .AddClasses(classes => classes.InNamespaces("MonProjet.Services"))
+        .AsImplementedInterfaces()
+        .WithScopedLifetime()
+);
+
+// 🔹 Appliquer le décorateur Logging à toutes les interfaces
+builder.Services.Decorate(typeof(object), (inner, provider) =>
+{
+    var innerType = inner.GetType().GetInterfaces().FirstOrDefault();
+    if (innerType == null) return inner; // sécurité
+
+    var loggerType = typeof(ILogger<>).MakeGenericType(innerType);
+    var logger = (ILogger)provider.GetRequiredService(loggerType);
+
+    var method = typeof(LoggingDecorator<>)
+        .MakeGenericType(innerType)
+        .GetMethod("Create", BindingFlags.Public | BindingFlags.Static);
+
+    return method!.Invoke(null, new[] { inner, logger });
+});
