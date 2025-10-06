@@ -1,103 +1,53 @@
-public class LoggingDecorator<T> : DispatchProxy
-{
-    private T _decorated = default!;
-    private ILogger<T> _logger = default!;
+#!/bin/bash
+# =====================================================================
+# Script d'installation d'Oracle Instant Client (Basic + SDK + SQL*Plus)
+# Compatible Ubuntu 20.04 / 22.04 / 24.04
+# Auteur : ChatGPT (version professionnelle)
+# =====================================================================
 
-    public static T Create(T decorated, ILogger<T> logger)
-    {
-        object proxy = Create<T, LoggingDecorator<T>>();
-        ((LoggingDecorator<T>)proxy)._decorated = decorated;
-        ((LoggingDecorator<T>)proxy)._logger = logger;
-        return (T)proxy;
-    }
+set -e  # Stoppe le script en cas d'erreur
 
-    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-    {
-        if (targetMethod == null) return null;
+echo "=== Installation d'Oracle Instant Client sur Ubuntu ==="
 
-        try
-        {
-            _logger.LogInformation("➡️ Appel {Method} avec args {@Args}",
-                targetMethod.Name, args);
+# --- 1️⃣ Préparation du système ---
+sudo apt update -y
+sudo apt install -y wget apt-transport-https libaio1 unzip
 
-            var result = targetMethod.Invoke(_decorated, args ?? Array.Empty<object?>());
+# --- 2️⃣ Téléchargement du package de configuration APT Oracle ---
+echo ">>> Téléchargement du dépôt APT Oracle..."
+wget https://download.oracle.com/otn_software/linux/instantclient/oracle-instantclient-apt-config_21.13.0.0.0-2_all.deb -O /tmp/oracle-apt-config.deb
 
-            if (result is Task task)
-            {
-                return InterceptAsync(task, targetMethod);
-            }
+# --- 3️⃣ Installation du dépôt Oracle ---
+echo ">>> Installation du dépôt APT Oracle..."
+sudo apt install -y /tmp/oracle-apt-config.deb
 
-            _logger.LogInformation("⬅️ Retour de {Method} = {@Result}",
-                targetMethod.Name, result);
+# --- 4️⃣ Mise à jour des dépôts ---
+echo ">>> Mise à jour des dépôts APT..."
+sudo apt update -y
 
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ Exception dans {Method}", targetMethod.Name);
-            throw;
-        }
-    }
+# --- 5️⃣ Installation des composants Oracle ---
+echo ">>> Installation du client Oracle (Basic + SDK + SQL*Plus)..."
+sudo apt install -y oracle-instantclient-basic oracle-instantclient-sdk oracle-instantclient-sqlplus
 
-    private async Task InterceptAsync(Task task, MethodInfo targetMethod)
-    {
-        try
-        {
-            await task.ConfigureAwait(false);
-            _logger.LogInformation("⬅️ Task {Method} terminée", targetMethod.Name);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ Exception dans {Method}", targetMethod.Name);
-            throw;
-        }
-    }
-}
+# --- 6️⃣ Configuration de l'environnement ---
+echo ">>> Configuration de l'environnement..."
+INSTANT_PATH=$(ldconfig -p | grep "libclntsh.so" | head -n 1 | awk '{print $NF}' | xargs dirname)
 
-using Scrutor;
+if [ -z "$INSTANT_PATH" ]; then
+    INSTANT_PATH="/usr/lib/oracle/21/client64/lib"
+fi
 
-var builder = WebApplication.CreateBuilder(args);
+PROFILE_FILE="$HOME/.bashrc"
 
-// 🔹 Scanner tous les services métiers
-builder.Services.Scan(scan => scan
-    .FromAssemblyOf<IMyService>()                // met une classe de référence de ton assembly
-    .AddClasses(classes => classes.InNamespaces("MonProjet.Services"))
-        .AsImplementedInterfaces()
-        .WithScopedLifetime()
-);
+grep -q "LD_LIBRARY_PATH" $PROFILE_FILE || echo "export LD_LIBRARY_PATH=$INSTANT_PATH:\$LD_LIBRARY_PATH" >> $PROFILE_FILE
+grep -q "PATH" $PROFILE_FILE || echo "export PATH=\$PATH:$INSTANT_PATH" >> $PROFILE_FILE
 
-// 🔹 Appliquer le décorateur Logging à toutes les interfaces
-builder.Services.Decorate(typeof(object), (inner, provider) =>
-{
-    var innerType = inner.GetType().GetInterfaces().FirstOrDefault();
-    if (innerType == null) return inner; // sécurité
+source $PROFILE_FILE
 
-    var loggerType = typeof(ILogger<>).MakeGenericType(innerType);
-    var logger = (ILogger)provider.GetRequiredService(loggerType);
+# --- 7️⃣ Vérification ---
+echo ">>> Vérification de l'installation..."
+sqlplus -v || echo "⚠️  SQL*Plus non trouvé dans le PATH"
+echo "Librairies Oracle disponibles dans : $INSTANT_PATH"
 
-    var method = typeof(LoggingDecorator<>)
-        .MakeGenericType(innerType)
-        .GetMethod("Create", BindingFlags.Public | BindingFlags.Static);
-
-    return method!.Invoke(null, new[] { inner, logger });
-});
-
-// Récupérer tous les services enregistrés
-var servicesToDecorate = builder.Services
-    .Where(d => d.ServiceType.IsInterface && d.ImplementationType != null)
-    .ToList();
-
-foreach (var service in servicesToDecorate)
-{
-    builder.Services.Decorate(service.ServiceType, (inner, provider) =>
-    {
-        var loggerType = typeof(ILogger<>).MakeGenericType(service.ServiceType);
-        var logger = provider.GetRequiredService(loggerType);
-
-        var method = typeof(LoggingDecorator<>)
-            .MakeGenericType(service.ServiceType)
-            .GetMethod("Create", BindingFlags.Public | BindingFlags.Static);
-
-        return method!.Invoke(null, new[] { inner, logger })!;
-    });
-}
+echo "✅ Installation terminée avec succès !"
+echo "Pour activer les variables immédiatement, exécute : source ~/.bashrc"
