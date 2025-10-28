@@ -1,0 +1,136 @@
+-- ===========================================================
+--  Schema Creation (if not exists)
+-- ===========================================================
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'ALM_MC')
+    EXEC('CREATE SCHEMA ALM_MC');
+GO
+
+-- ===========================================================
+--  1. Reference Table : ProcessType
+-- ===========================================================
+CREATE TABLE ALM_MC.ProcessType (
+    ProcessTypeId INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(50) NOT NULL UNIQUE,
+    Description NVARCHAR(255) NULL,
+    CreatedAt DATETIME2 DEFAULT SYSDATETIME()
+);
+GO
+
+INSERT INTO ALM_MC.ProcessType (Name, Description) VALUES
+('STOCK_LOAD', 'Stock data loading process'),
+('RATE_LOAD', 'Rate data loading process'),
+('MODEL_LOAD', 'Model data loading process'),
+('CALCULATION_RUN', 'Calculation launching process');
+GO
+
+-- ===========================================================
+--  2. Reference Table : ProcessStatus
+-- ===========================================================
+CREATE TABLE ALM_MC.ProcessStatus (
+    ProcessStatusId INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(50) NOT NULL UNIQUE,
+    Description NVARCHAR(255) NULL
+);
+GO
+
+INSERT INTO ALM_MC.ProcessStatus (Name, Description) VALUES
+('PENDING', 'Waiting to start'),
+('RUNNING', 'Currently running'),
+('COMPLETED', 'Successfully completed'),
+('FAILED', 'Execution failed');
+GO
+
+-- ===========================================================
+--  3. Main Table : Process
+-- ===========================================================
+CREATE TABLE ALM_MC.Process (
+    ProcessId BIGINT IDENTITY(1,1) PRIMARY KEY,
+    ProcessTypeId INT NOT NULL,
+    ProcessStatusId INT NOT NULL,
+    UID NVARCHAR(100) NOT NULL, -- user identifier (external system)
+    LaunchDate DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+    BeginDate DATETIME2 NULL,
+    EndDate DATETIME2 NULL,
+    HasAudit BIT DEFAULT 0, -- for calculation processes
+    ExcelPath NVARCHAR(500) NULL, -- S3 or file storage path
+    ExtractionMode NVARCHAR(50) NULL, -- e.g. 'EXCEL' or 'DATABASE'
+    LinkedStockId BIGINT NULL,
+    LinkedRateId BIGINT NULL,
+    LinkedModelId BIGINT NULL,
+    CreatedAt DATETIME2 DEFAULT SYSDATETIME(),
+    UpdatedAt DATETIME2 NULL
+);
+GO
+
+-- Foreign keys
+ALTER TABLE ALM_MC.Process
+ADD CONSTRAINT FK_Process_ProcessType
+    FOREIGN KEY (ProcessTypeId) REFERENCES ALM_MC.ProcessType(ProcessTypeId);
+
+ALTER TABLE ALM_MC.Process
+ADD CONSTRAINT FK_Process_ProcessStatus
+    FOREIGN KEY (ProcessStatusId) REFERENCES ALM_MC.ProcessStatus(ProcessStatusId);
+GO
+
+-- ===========================================================
+--  4. Child Table : ProcessParameter
+-- ===========================================================
+CREATE TABLE ALM_MC.ProcessParameter (
+    ProcessParameterId BIGINT IDENTITY(1,1) PRIMARY KEY,
+    ProcessId BIGINT NOT NULL,
+    ParamKey NVARCHAR(100) NOT NULL,
+    ParamValue NVARCHAR(MAX) NULL,
+    CreatedAt DATETIME2 DEFAULT SYSDATETIME(),
+    CONSTRAINT FK_ProcessParameter_Process FOREIGN KEY (ProcessId)
+        REFERENCES ALM_MC.Process(ProcessId) ON DELETE CASCADE
+);
+GO
+
+-- ===========================================================
+--  Indexing Strategy
+-- ===========================================================
+
+-- Index for quick filtering by user
+CREATE NONCLUSTERED INDEX IX_Process_UID
+    ON ALM_MC.Process (UID);
+
+-- Index for frequent queries by type and status
+CREATE NONCLUSTERED INDEX IX_Process_Type_Status
+    ON ALM_MC.Process (ProcessTypeId, ProcessStatusId);
+
+-- Index for launch date filtering (most recent first)
+CREATE NONCLUSTERED INDEX IX_Process_LaunchDate
+    ON ALM_MC.Process (LaunchDate DESC);
+
+-- Index on ProcessParameter key (to find parameters quickly)
+CREATE NONCLUSTERED INDEX IX_ProcessParameter_Key
+    ON ALM_MC.ProcessParameter (ParamKey);
+
+-- ===========================================================
+--  Optional : Audit trigger (for professional traceability)
+-- ===========================================================
+CREATE TABLE ALM_MC.Process_Audit (
+    AuditId BIGINT IDENTITY(1,1) PRIMARY KEY,
+    ProcessId BIGINT,
+    Action NVARCHAR(50),
+    ActionDate DATETIME2 DEFAULT SYSDATETIME(),
+    ActionUser NVARCHAR(100),
+    Details NVARCHAR(1000)
+);
+GO
+
+CREATE TRIGGER TRG_Process_Update
+ON ALM_MC.Process
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    INSERT INTO ALM_MC.Process_Audit (ProcessId, Action, ActionUser, Details)
+    SELECT
+        i.ProcessId,
+        'UPDATE',
+        i.UID,
+        'Process updated (status or timing changed)'
+    FROM inserted i;
+END;
+GO
