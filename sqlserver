@@ -134,3 +134,142 @@ BEGIN
     FROM inserted i;
 END;
 GO
+
+-- ===========================================================
+--  Create schema
+-- ===========================================================
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'ALM_MC')
+    EXEC('CREATE SCHEMA ALM_MC');
+GO
+
+-- ===========================================================
+--  Reference tables
+-- ===========================================================
+CREATE TABLE ALM_MC.ProcessType (
+    ProcessTypeId INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(50) UNIQUE NOT NULL,
+    Description NVARCHAR(255)
+);
+
+INSERT INTO ALM_MC.ProcessType (Name, Description)
+VALUES
+('STOCK_LOAD', 'Stock loading process'),
+('RATE_LOAD', 'Rate loading process'),
+('MODEL_LOAD', 'Model loading process'),
+('CALCULATION_RUN', 'Calculation process');
+GO
+
+CREATE TABLE ALM_MC.ProcessStatus (
+    ProcessStatusId INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(50) UNIQUE NOT NULL,
+    Description NVARCHAR(255)
+);
+
+INSERT INTO ALM_MC.ProcessStatus (Name, Description)
+VALUES
+('PENDING', 'Waiting to start'),
+('RUNNING', 'Currently running'),
+('COMPLETED', 'Successfully completed'),
+('FAILED', 'Execution failed');
+GO
+
+-- ===========================================================
+--  Base table for all processes
+-- ===========================================================
+CREATE TABLE ALM_MC.Process (
+    ProcessId BIGINT IDENTITY(1,1) PRIMARY KEY,
+    ProcessTypeId INT NOT NULL,
+    ProcessStatusId INT NOT NULL,
+    UID NVARCHAR(100) NOT NULL,
+    LaunchDate DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+    BeginDate DATETIME2 NULL,
+    EndDate DATETIME2 NULL,
+    CreatedAt DATETIME2 DEFAULT SYSDATETIME(),
+    UpdatedAt DATETIME2 NULL,
+
+    CONSTRAINT FK_Process_Type FOREIGN KEY (ProcessTypeId)
+        REFERENCES ALM_MC.ProcessType(ProcessTypeId),
+
+    CONSTRAINT FK_Process_Status FOREIGN KEY (ProcessStatusId)
+        REFERENCES ALM_MC.ProcessStatus(ProcessStatusId)
+);
+GO
+
+-- ===========================================================
+--  Child tables per process type
+-- ===========================================================
+
+-- STOCK PROCESS
+CREATE TABLE ALM_MC.ProcessStock (
+    ProcessId BIGINT PRIMARY KEY,
+    ExtractionMode NVARCHAR(50) NOT NULL CHECK (ExtractionMode IN ('EXCEL', 'DATABASE')),
+    ExcelPath NVARCHAR(500) NULL,
+    StoragePath NVARCHAR(500) NULL, -- S3 path
+    CONSTRAINT FK_ProcessStock_Process FOREIGN KEY (ProcessId)
+        REFERENCES ALM_MC.Process(ProcessId) ON DELETE CASCADE
+);
+GO
+
+-- RATE PROCESS
+CREATE TABLE ALM_MC.ProcessRate (
+    ProcessId BIGINT PRIMARY KEY,
+    ExcelPath NVARCHAR(500) NULL,
+    RateType NVARCHAR(50) NULL,
+    Component NVARCHAR(50) NULL,
+    CONSTRAINT FK_ProcessRate_Process FOREIGN KEY (ProcessId)
+        REFERENCES ALM_MC.Process(ProcessId) ON DELETE CASCADE
+);
+GO
+
+-- MODEL PROCESS
+CREATE TABLE ALM_MC.ProcessModel (
+    ProcessId BIGINT PRIMARY KEY,
+    ExcelPath NVARCHAR(500) NULL,
+    ModelType NVARCHAR(50) NULL,
+    CONSTRAINT FK_ProcessModel_Process FOREIGN KEY (ProcessId)
+        REFERENCES ALM_MC.Process(ProcessId) ON DELETE CASCADE
+);
+GO
+
+-- CALCULATION PROCESS
+CREATE TABLE ALM_MC.ProcessCalculation (
+    ProcessId BIGINT PRIMARY KEY,
+    LinkedStockId BIGINT NULL,
+    LinkedRateId BIGINT NULL,
+    LinkedModelId BIGINT NULL,
+    HasAudit BIT DEFAULT 0,
+    SpecificParams NVARCHAR(MAX) NULL,
+    CONSTRAINT FK_ProcessCalc_Process FOREIGN KEY (ProcessId)
+        REFERENCES ALM_MC.Process(ProcessId) ON DELETE CASCADE
+);
+GO
+
+-- ===========================================================
+--  Parameters (key/value pairs)
+-- ===========================================================
+CREATE TABLE ALM_MC.ProcessParameter (
+    ProcessParameterId BIGINT IDENTITY(1,1) PRIMARY KEY,
+    ProcessId BIGINT NOT NULL,
+    ParamKey NVARCHAR(100) NOT NULL,
+    ParamValue NVARCHAR(MAX) NULL,
+    CreatedAt DATETIME2 DEFAULT SYSDATETIME(),
+    CONSTRAINT FK_ProcessParameter_Process FOREIGN KEY (ProcessId)
+        REFERENCES ALM_MC.Process(ProcessId) ON DELETE CASCADE
+);
+GO
+
+-- ===========================================================
+--  Indexes (optimized for reading and filtering)
+-- ===========================================================
+CREATE NONCLUSTERED INDEX IX_Process_UID
+    ON ALM_MC.Process (UID);
+
+CREATE NONCLUSTERED INDEX IX_Process_Type_Status
+    ON ALM_MC.Process (ProcessTypeId, ProcessStatusId);
+
+CREATE NONCLUSTERED INDEX IX_Process_LaunchDate
+    ON ALM_MC.Process (LaunchDate DESC);
+
+CREATE NONCLUSTERED INDEX IX_ProcessParameter_Key
+    ON ALM_MC.ProcessParameter (ParamKey);
+GO
