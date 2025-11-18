@@ -1,0 +1,30 @@
+public class FakeDbContextWithTransactions : DbContext, IAppDbContext
+{
+    public FakeDbContextWithTransactions() {}
+
+    public override DatabaseFacade Database 
+        => new FakeDatabaseFacade(this);
+
+    public DbSet<User> Users => Set<User>();
+}
+
+public class FakeDatabaseFacade : DatabaseFacade
+{
+    public FakeDatabaseFacade(DbContext context) : base(context)
+    {
+    }
+
+    public override IDbContextTransaction BeginTransaction()
+        => new FakeTransaction();
+
+    public override Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IDbContextTransaction>(new FakeTransaction());
+}
+
+public class FakeTransaction : IDbContextTransaction
+{
+    public Guid TransactionId => Guid.NewGuid();
+    public void Commit() { }
+    public void Rollback() { }
+    public void Dispose() { }
+}
