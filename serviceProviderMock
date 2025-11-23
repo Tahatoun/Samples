@@ -1,13 +1,26 @@
-public class FakeServiceProvider : IServiceProvider
+public class FakeKeyedServiceProvider : IServiceProvider, IKeyedServiceProvider
 {
-    private readonly Dictionary<Type, object> _services = new();
+    private readonly Dictionary<(Type, object), object> _services = new();
 
-    public void Add<T>(T instance) => _services[typeof(T)] = instance;
+    public void AddKeyed<T>(object key, T instance)
+    {
+        _services[(typeof(T), key)] = instance!;
+    }
 
     public object? GetService(Type serviceType)
     {
-        return _services.TryGetValue(serviceType, out var service)
-            ? service
+        // Ne gère que GetRequiredService classique si besoin
+        return _services
+            .Where(s => s.Key.Item1 == serviceType)
+            .Select(s => s.Value)
+            .FirstOrDefault();
+    }
+
+    // IMPORTANT : méthode utilisée par GetRequiredKeyedService
+    public object? GetKeyedService(Type serviceType, object? serviceKey)
+    {
+        return _services.TryGetValue((serviceType, serviceKey!), out var svc)
+            ? svc
             : null;
     }
 }
