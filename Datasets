@@ -1,0 +1,70 @@
+┌────────────────────────────────────────────┐
+│              ADMINISTRATION IAM            │
+└────────────────────────────────────────────┘
+            │
+            ▼
+┌────────────────────────────┐
+│ Cockpit Admin IAM          │
+│ - Création Permissions    │
+│ - Création Entitlements   │
+└────────────────────────────┘
+            │
+            ▼
+┌────────────────────────────┐
+│ Entitlement MyAM           │
+│ (Groupe de permissions)    │
+└────────────────────────────┘
+            │
+            ▼
+┌────────────────────────────┐
+│ Groupe LDAP                │
+│ (mapping via script)       │
+└────────────────────────────┘
+            │
+            ▼
+      ┌─────────────────┐
+      │ Script de lien  │
+      │ Entitlement ↔  │
+      │ Groupe LDAP     │
+      └─────────────────┘
+            │
+            ▼
+┌────────────────────────────────────────────┐
+│        SYSTÈME D'AUTHENTIFICATION          │
+│ (SSO / IAM Central / ??? )                 │   ←  ❓ SOURCE DES DATASETS
+└────────────────────────────────────────────┘
+            │
+            ▼
+┌────────────────────────────────────────────┐
+│ Générateur de Headers de Sécurité          │
+│ - Permissions                              │
+│ - Datasets  ←  (BLANK : où sont-ils créés)│
+└────────────────────────────────────────────┘
+            │
+            ▼
+┌────────────────────────────────────────────┐
+│ API Gateway / Reverse Proxy  ( ? )         │   ← ❓ COMPOSANT INTERMÉDIAIRE
+│ - Injection Headers HTTP                 │
+└────────────────────────────────────────────┘
+            │
+            ▼   HTTP Request avec :
+                - X-Permissions
+                - X-Datasets
+┌────────────────────────────────────────────┐
+│        TON NOUVEAU MICROSERVICE            │
+│      (ASP.NET Core - Kubernetes)           │
+│                                            │
+│ 1. [CheckPermission] → RBAC                │
+│ 2. Extraction X-Datasets → ABAC            │
+│ 3. Logique de Micro-Juridiction            │
+│ 4. Autorisation Métier Fine                │
+│                                            │
+└────────────────────────────────────────────┘
+            │
+            ▼
+┌────────────────────────────────────────────┐
+│ Traitement Métier                          │
+│ - Import Excel                             │
+│ - Sélection modèles autorisés             │
+│ - Calculs                                 │
+└────────────────────────────────────────────┘
