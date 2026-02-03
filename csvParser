@@ -1,0 +1,56 @@
+using System;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+
+class Program
+{
+    static void Main()
+    {
+        string inputPath = "input.csv";
+        string outputPath = "output.csv";
+
+        ConvertCsv(inputPath, outputPath);
+
+        Console.WriteLine("Conversion terminée !");
+    }
+
+    static void ConvertCsv(string inputPath, string outputPath)
+    {
+        var lines = File.ReadAllLines(inputPath);
+
+        if (lines.Length <= 1)
+            return;
+
+        using var writer = new StreamWriter(outputPath);
+
+        // Ignorer le header => on commence à 1
+        for (int i = 1; i < lines.Length; i++)
+        {
+            var line = lines[i].Trim();
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            // Split simple (OK ici car ton string est "Test" sans virgule interne)
+            var parts = line.Split(',');
+
+            if (parts.Length < 6)
+                continue; // ou throw
+
+            // On prend les 5 premières colonnes
+            var firstFive = parts.Take(5).ToArray();
+
+            // Tout le reste = decimal cassé (ex: "0","01" => "0,01")
+            var decimalParts = parts.Skip(5).ToArray();
+            string decimalWithComma = string.Join(",", decimalParts);
+
+            // Conversion virgule -> point
+            string decimalWithDot = decimalWithComma.Replace(',', '.');
+
+            // Output final
+            string outputLine = string.Join(",", firstFive) + "," + decimalWithDot;
+
+            writer.WriteLine(outputLine);
+        }
+    }
+}
