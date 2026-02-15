@@ -1,0 +1,18 @@
+public class ConnectionInterceptor : DbConnectionInterceptor
+{
+    public override void ConnectionOpened(
+        DbConnection connection,
+        ConnectionEndEventData eventData)
+    {
+        Console.WriteLine("OPEN " + connection.DataSource);
+    }
+
+    public override void ConnectionClosed(
+        DbConnection connection,
+        ConnectionEndEventData eventData)
+    {
+        Console.WriteLine("CLOSE " + connection.DataSource);
+    }
+}
+
+options.AddInterceptors(new ConnectionInterceptor());
