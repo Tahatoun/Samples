@@ -1,0 +1,20 @@
+{
+  "runtime": "Net70",
+
+  "documentGenerator": {
+    "fromDocument": {
+      "url": "https://serviceA/api/swagger/v1/swagger.json"
+    }
+  },
+
+  "codeGenerators": {
+    "openApiToCSharpClient": {
+      "classname": "ServiceAClient",
+      "namespace": "ServiceB.Clients",
+      "output": "Clients/ServiceAClient.cs",
+
+      "generateClientClasses": true,
+      "generateDtoTypes": true
+    }
+  }
+}
