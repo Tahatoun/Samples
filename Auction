@@ -1,1 +1,30 @@
-https://www.alcopa-auction.fr/vehicule-occasion/citroen/c3-puretech-82-s-s-bvm5-feel-1009235
+using System;
+using System.Text.RegularExpressions;
+
+class Program
+{
+    static void Main()
+    {
+        string X = "Taha";
+        string Y = "Taha";
+        string texte = "TahaTahamoninfo_2026-03-21";
+
+        // Construire la regex dynamiquement en fonction de X et Y
+        string pattern = $"^{Regex.Escape(X + Y)}(.+?)_(\\d{{4}}-\\d{{2}}-\\d{{2}})$";
+
+        Match match = Regex.Match(texte, pattern);
+
+        if (match.Success)
+        {
+            string info = match.Groups[1].Value;   // info après X + Y
+            string date = match.Groups[2].Value;   // date après underscore
+
+            Console.WriteLine("Info: " + info);
+            Console.WriteLine("Date: " + date);
+        }
+        else
+        {
+            Console.WriteLine("Format non reconnu.");
+        }
+    }
+}
