@@ -1,0 +1,7 @@
+SELECT 
+'    (' + 
+CAST(id AS VARCHAR) + ', ' +
+'''' + REPLACE(col1, '''', '''''') + ''', ' +
+'''' + REPLACE(col2, '''', '''''') + '''' +
+'),' 
+FROM dbo.ma_table;
