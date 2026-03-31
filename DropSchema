@@ -1,0 +1,18 @@
+-- 1. Supprimer toutes les tables du schéma ALM_MC
+DECLARE @sql NVARCHAR(MAX) = '';
+
+SELECT @sql += 'DROP TABLE [' + s.name + '].[' + t.name + '];'
+FROM sys.tables t
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+WHERE s.name = 'ALM_MC';
+
+EXEC sp_executesql @sql;
+
+-- 2. Supprimer le schéma
+DROP SCHEMA IF EXISTS [ALM_MC];
+
+-- 3. Reset EF migrations (premier déploiement)
+IF OBJECT_ID('dbo.__EFMigrationsHistory', 'U') IS NOT NULL
+BEGIN
+    DROP TABLE [dbo].[__EFMigrationsHistory];
+END
