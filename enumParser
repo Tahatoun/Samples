@@ -1,0 +1,81 @@
+using System;
+using System.Text.RegularExpressions;
+
+namespace YourNamespace
+{
+    public static class StructuredStringParser
+    {
+        // ⚙️ À adapter selon tes constantes réelles
+        private const string Prefix = "PREFIX";
+        private const string Suffix = "SUFFIX";
+
+        // 🧠 Regex compilée (perf + best practice)
+        private static readonly Regex MyRegex = new Regex(
+            $@"^{Prefix}_(?<EnumName>[A-Za-z_][A-Za-z0-9_]*)_{Suffix}_(?<OrgUnit>[^_]+)_(?<ProcessId>\d+)_(?<DateTime>.+)$",
+            RegexOptions.Compiled
+        );
+
+        // 🎯 Méthode principale (recommandée)
+        public static bool TryParse<TEnum>(
+            string input,
+            out TEnum enumValue,
+            out string orgUnit,
+            out long processId)
+            where TEnum : struct, Enum
+        {
+            enumValue = default;
+            orgUnit = default!;
+            processId = default;
+
+            if (string.IsNullOrWhiteSpace(input))
+                return false;
+
+            var match = MyRegex.Match(input);
+            if (!match.Success)
+                return false;
+
+            // Enum (basé sur nameof)
+            if (!Enum.TryParse(match.Groups["EnumName"].Value, ignoreCase: false, out enumValue))
+                return false;
+
+            orgUnit = match.Groups["OrgUnit"].Value;
+
+            if (!long.TryParse(match.Groups["ProcessId"].Value, out processId))
+                return false;
+
+            return true;
+        }
+
+        // 🔹 Extraction Enum seule
+        public static TEnum? ExtractEnum<TEnum>(string input)
+            where TEnum : struct, Enum
+        {
+            var match = MyRegex.Match(input);
+            if (!match.Success)
+                return null;
+
+            return Enum.TryParse(match.Groups["EnumName"].Value, out TEnum result)
+                ? result
+                : null;
+        }
+
+        // 🔹 Extraction OrgUnit
+        public static string? ExtractOrgUnit(string input)
+        {
+            var match = MyRegex.Match(input);
+            return match.Success ? match.Groups["OrgUnit"].Value : null;
+        }
+
+        // 🔹 Extraction ProcessId
+        public static long? ExtractProcessId(string input)
+        {
+            var match = MyRegex.Match(input);
+            if (!match.Success)
+                return null;
+
+            return long.TryParse(match.Groups["ProcessId"].Value, out var result)
+                ? result
+                : null;
+        }
+    }
+}
