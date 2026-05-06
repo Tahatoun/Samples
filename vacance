@@ -1,0 +1,37 @@
+Bonjour,
+
+Je pars en congés prochainement, voici les points à suivre pendant mon absence :
+
+### 1. Gestion des droits – Christophe
+- Vérifier que le compte de service dispose des bons droits sur l’ensemble des endpoints (liste déjà disponible).
+- Se rapprocher des équipes concernées pour attribuer les accès nécessaires, en non-prod et en production.
+- Pour rappel :
+  - J’utilise actuellement le compte PNL pour publier dans DataHub Retriever.
+  - Pour la récupération des folder managers, j’utilise le compte Deal Service, qui possède déjà les bons droits.
+- Christophe prend en charge ce sujet.
+
+### 2. Front-end – Check
+- Brancher le front-end sur le nouvel endpoint ajouté.
+- Utiliser le champ existant permettant de distinguer si le stock est importé via Excel ou non.
+- Check gère cette partie.
+
+### 3. Tests – Christophe
+- Tester le scope du 31 mars (je partage les éléments nécessaires).
+- Un lancement a déjà été effectué, en attente des résultats.
+
+### 4. Déploiement en production – Points d’attention
+- ⚠️ Kafka :
+  - Ne pas déployer mon commit en production sans configuration Kafka complète.
+  - Mon commit lance plusieurs background services et dépend de Kafka → risque d’échec du service sinon.
+  - Si besoin (support produit structuré ou correctif), partir d’une branche antérieure à mon commit.
+
+- ⚠️ Configuration :
+  - Ne pas déployer :
+    - Le fichier ALM C Calculateur settings.json
+    - La configuration Kafka ajoutée dans ce fichier
+  - Vérifier également la configuration Cube.
+
+Merci à tous pour le suivi 👍  
+Je reste joignable si besoin critique.
+
+--
