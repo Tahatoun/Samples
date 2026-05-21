@@ -1,0 +1,17 @@
+-- Supprimer les FK
+
+SELECT @sql += '
+
+ALTER TABLE [' + s.name + '].[' + t.name + '] DROP CONSTRAINT [' + fk.name + '];'
+
+FROM sys.foreign_keys fk
+
+INNER JOIN sys.tables t ON fk.parent_object_id = t.object_id
+
+INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+
+WHERE s.name = 'MonSchema';
+
+EXEC sp_executesql @sql;
+
+SET @sql = '';
