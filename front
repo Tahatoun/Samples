@@ -1,0 +1,19 @@
+Hi team,
+
+I have three points I’d like to follow up on:
+
+1. Polling frequency
+    We noticed in production that the polling mechanism used to refresh process statuses is currently triggering requests every second. This does not align with the agreed requirement of a 10-second refresh interval.
+    The current behavior generates a large number of HTTP requests, puts unnecessary load on the server, and significantly pollutes the logs.
+    Could you please update the polling interval to be between 5 and 10 seconds, instead of every second?
+2. Data Layer stock import endpoint
+    Could you provide an update on the integration with the new endpoint for stock imports coming from the Data Layer?
+    As discussed, the logic should be based on the IsSupportedExcel flag:
+    * If IsSupportedExcel = true, the existing Excel import flow should be used.
+    * If IsSupportedExcel = false, the new Data Layer endpoint should be called instead.
+    Could you let us know the current status of this implementation?
+3. Calculation launch for multiple versions
+    We also wanted to check the status of the feature related to launching calculations for multiple versions.
+    A Jira ticket was created specifying the expected behavior. Could you please provide an update on where this stands?
+
+Thanks.
