@@ -1,0 +1,9 @@
+public async Task UpdateAsync<TEntity>(
+    Expression<Func<TEntity, bool>> predicate,
+    Expression<Func<SetPropertyCalls<TEntity>, SetPropertyCalls<TEntity>>> setProperties)
+    where TEntity : class
+{
+    await _dbContext.Set<TEntity>()
+        .Where(predicate)
+        .ExecuteUpdateAsync(setProperties);
+}
