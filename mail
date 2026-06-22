@@ -1,0 +1,9 @@
+Hi Team,
+
+We have encountered several issues recently on the TST-UAT environments. First of all, thank you to Omarou for investigating and fixing the previous issue, and for coordinating with the team to synchronize our environments so that we could continue deploying new versions.
+
+We are currently testing our new service account. Everything is working correctly on the TST environment, but we are facing issues on UAT. Specifically, we are unable to retrieve the pod logs on UAT, which is preventing us from validating the setup properly.
+
+Could you please investigate this issue and help us resolve it?
+
+Thank you in advance for your support.
