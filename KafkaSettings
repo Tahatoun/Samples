@@ -1,0 +1,13 @@
+security.protocol=SSL
+
+ssl.truststore.type=PEM
+ssl.keystore.type=PEM
+
+ssl.truststore.certificates=C:/certs/kafka-ca-root.crt
+ssl.keystore.certificate.chain=C:/certs/kafka-certificate.crt
+ssl.keystore.key=C:/certs/kafka-private.key
+
+kafka-consumer-groups.bat ^
+  --bootstrap-server eurvlii88421.xmp.net.intra:1093 ^
+  --command-config client.properties ^
+  --list
