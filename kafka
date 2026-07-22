@@ -1,0 +1,70 @@
+using Confluent.Kafka;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+public class KafkaOffsetManager
+{
+    private readonly AdminClientConfig _config;
+
+    public KafkaOffsetManager()
+    {
+        _config = new AdminClientConfig
+        {
+            BootstrapServers = "broker:9093",
+            SecurityProtocol = SecurityProtocol.Ssl,
+
+            SslCaLocation = @"C:\certs\kafka-ca-root.crt",
+            SslCertificateLocation = @"C:\certs\kafka-certificate.crt",
+            SslKeyLocation = @"C:\certs\kafka-private.key"
+        };
+    }
+
+
+    public async Task MoveGroupToLatestAsync(string consumerGroupId)
+    {
+        using var adminClient =
+            new AdminClientBuilder(_config).Build();
+
+
+        // Récupération des offsets actuels du groupe
+        var currentOffsets =
+            adminClient.ListConsumerGroupOffsets(
+                new[] { consumerGroupId });
+
+
+        var offsetsToApply =
+            new List<TopicPartitionOffset>();
+
+
+        foreach (var groupOffset in currentOffsets)
+        {
+            foreach (var offset in groupOffset.Value)
+            {
+                var topicPartition = offset.TopicPartition;
+
+
+                var watermark =
+                    adminClient.QueryWatermarkOffsets(
+                        topicPartition,
+                        TimeSpan.FromSeconds(10));
+
+
+                offsetsToApply.Add(
+                    new TopicPartitionOffset(
+                        topicPartition,
+                        new Offset(watermark.High)));
+            }
+        }
+
+
+        await adminClient.AlterConsumerGroupOffsetsAsync(
+            consumerGroupId,
+            offsetsToApply);
+
+
+        Console.WriteLine(
+            $"Offsets du groupe {consumerGroupId} déplacés à latest.");
+    }
+}
