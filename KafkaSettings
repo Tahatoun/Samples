@@ -11,3 +11,26 @@ kafka-consumer-groups.bat ^
   --bootstrap-server eurvlii88421.xmp.net.intra:1093 ^
   --command-config client.properties ^
   --list
+
+var config = new AdminClientConfig
+{
+    BootstrapServers = "broker:9093",
+    SecurityProtocol = SecurityProtocol.Ssl,
+
+    SslCaLocation = @"C:\certs\kafka-ca-root.crt",
+    SslCertificateLocation = @"C:\certs\kafka-certificate.crt",
+    SslKeyLocation = @"C:\certs\kafka-private.key"
+};
+
+using var admin = new AdminClientBuilder(config).Build();
+
+var offsets = new Dictionary<TopicPartition, Offset>
+{
+    // TopicPartition -> nouvel offset
+};
+
+await admin.AlterConsumerGroupOffsetsAsync(
+    "mon-consumer-group",
+    offsets);
+
+var metadata = admin.GetMetadata("mon-topic", TimeSpan.FromSeconds(10));
