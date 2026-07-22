@@ -34,3 +34,78 @@ await admin.AlterConsumerGroupOffsetsAsync(
     offsets);
 
 var metadata = admin.GetMetadata("mon-topic", TimeSpan.FromSeconds(10));
+
+
+
+
+using Confluent.Kafka;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+public class KafkaOffsetResetter
+{
+    private readonly AdminClientConfig _adminConfig;
+
+    public KafkaOffsetResetter()
+    {
+        _adminConfig = new AdminClientConfig
+        {
+            BootstrapServers = "broker:9093",
+
+            SecurityProtocol = SecurityProtocol.Ssl,
+
+            SslCaLocation = @"C:\certs\kafka-ca-root.crt",
+            SslCertificateLocation = @"C:\certs\kafka-certificate.crt",
+            SslKeyLocation = @"C:\certs\kafka-private.key"
+        };
+    }
+
+
+    public async Task MoveConsumerGroupToLatestAsync(
+        string consumerGroupId)
+    {
+        using var adminClient =
+            new AdminClientBuilder(_adminConfig).Build();
+
+
+        // 1 - Récupérer les offsets actuels du consumer group
+        var groupOffsets =
+            adminClient.ListConsumerGroupOffsets(
+                consumerGroupId);
+
+
+        var newOffsets =
+            new Dictionary<TopicPartition, Offset>();
+
+
+        // 2 - Pour chaque partition consommée,
+        // récupérer le dernier offset disponible
+        foreach (var partitionOffset in groupOffsets)
+        {
+            var topicPartition = partitionOffset.TopicPartition;
+
+
+            var watermark =
+                adminClient.QueryWatermarkOffsets(
+                    topicPartition,
+                    TimeSpan.FromSeconds(10));
+
+
+            // Déplacer l'offset à la fin
+            newOffsets[topicPartition] =
+                new Offset(watermark.High);
+        }
+
+
+        // 3 - Modifier les offsets du Consumer Group
+        await adminClient.AlterConsumerGroupOffsetsAsync(
+            consumerGroupId,
+            newOffsets);
+
+
+        Console.WriteLine(
+            $"Consumer group {consumerGroupId} déplacé à latest.");
+    }
+}
