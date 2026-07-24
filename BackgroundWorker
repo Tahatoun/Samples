@@ -1,0 +1,36 @@
+public class MyBackgroundWorker : BackgroundService
+{
+    private readonly ILogger<MyBackgroundWorker> _logger;
+
+    public MyBackgroundWorker(ILogger<MyBackgroundWorker> logger)
+    {
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(2));
+
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try
+            {
+                _logger.LogInformation("Début de la tâche");
+
+                await DoWorkAsync(stoppingToken);
+
+                _logger.LogInformation("Tâche terminée");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erreur pendant l'exécution du background service");
+            }
+        }
+    }
+
+    private async Task DoWorkAsync(CancellationToken cancellationToken)
+    {
+        // Ton traitement ici
+        await Task.Delay(1000, cancellationToken);
+    }
+}
