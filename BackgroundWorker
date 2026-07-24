@@ -1,36 +1,70 @@
-public class MyBackgroundWorker : BackgroundService
+public abstract class ScheduledBackgroundService : BackgroundService
 {
-    private readonly ILogger<MyBackgroundWorker> _logger;
+    protected abstract TimeSpan TimerDelay { get; }
+    protected abstract TimeSpan TimerPeriod { get; }
 
-    public MyBackgroundWorker(ILogger<MyBackgroundWorker> logger)
+    protected abstract Task DoWorkAsync(CancellationToken cancellationToken);
+
+    private readonly ILogger<ScheduledBackgroundService> _logger;
+
+    protected ScheduledBackgroundService(
+        ILogger<ScheduledBackgroundService> logger)
     {
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(2));
+        var serviceName = GetType().Name;
+
+        _logger.LogInformation(
+            "Background service {ServiceName} has been scheduled. Initial delay: {TimerDelay}. Execution period: {TimerPeriod}.",
+            serviceName,
+            TimerDelay,
+            TimerPeriod);
+
+        await Task.Delay(TimerDelay, stoppingToken);
+
+        _logger.LogInformation(
+            "Background service {ServiceName} has been awakened after the initial delay and will now execute every {TimerPeriod}.",
+            serviceName,
+            TimerPeriod);
+
+        using var timer = new PeriodicTimer(TimerPeriod);
 
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try
             {
-                _logger.LogInformation("Début de la tâche");
+                _logger.LogInformation(
+                    "Execution window reached for background service {ServiceName}. Starting scheduled task execution.",
+                    serviceName);
 
                 await DoWorkAsync(stoppingToken);
 
-                _logger.LogInformation("Tâche terminée");
+                _logger.LogInformation(
+                    "Scheduled task execution completed successfully for background service {ServiceName}.",
+                    serviceName);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation(
+                    "Background service {ServiceName} execution was cancelled because the application is shutting down.",
+                    serviceName);
+
+                break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erreur pendant l'exécution du background service");
+                _logger.LogError(
+                    ex,
+                    "An error occurred while executing scheduled task for background service {ServiceName}.",
+                    serviceName);
             }
         }
-    }
 
-    private async Task DoWorkAsync(CancellationToken cancellationToken)
-    {
-        // Ton traitement ici
-        await Task.Delay(1000, cancellationToken);
+        _logger.LogInformation(
+            "Background service {ServiceName} has stopped.",
+            serviceName);
     }
 }
