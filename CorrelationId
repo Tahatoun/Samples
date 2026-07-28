@@ -1,0 +1,199 @@
+using System.Diagnostics;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddLogging(logging =>
+{
+    logging.AddConsole();
+});
+
+builder.Services.AddSingleton<ActivitySource>(_ =>
+    new ActivitySource("MyCompany.BackgroundWorkers"));
+
+builder.Services.AddHostedService<MyBackgroundService>();
+
+builder.Services.AddScoped<DealProcessor>();
+builder.Services.AddScoped<DealRepository>();
+
+var app = builder.Build();
+
+app.Run();
+
+
+using System.Diagnostics;
+
+public class MyBackgroundService : BackgroundService
+{
+    private readonly ILogger<MyBackgroundService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ActivitySource _activitySource;
+
+    public MyBackgroundService(
+        ILogger<MyBackgroundService> logger,
+        IServiceScopeFactory scopeFactory,
+        ActivitySource activitySource)
+    {
+        _logger = logger;
+        _scopeFactory = scopeFactory;
+        _activitySource = activitySource;
+    }
+
+
+    protected override async Task ExecuteAsync(
+        CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await ProcessBatchAsync(stoppingToken);
+
+            await Task.Delay(
+                TimeSpan.FromSeconds(30),
+                stoppingToken);
+        }
+    }
+
+
+    private async Task ProcessBatchAsync(
+        CancellationToken cancellationToken)
+    {
+        using var activity = _activitySource.StartActivity(
+            "Process Deals Batch",
+            ActivityKind.Consumer);
+
+
+        if (activity == null)
+        {
+            return;
+        }
+
+
+        // Ton correlation_id
+        var correlationId = activity.TraceId.ToString();
+
+
+        using var logScope = _logger.BeginScope(
+            new Dictionary<string, object>
+            {
+                ["CorrelationId"] = correlationId
+            });
+
+
+        _logger.LogInformation(
+            "Starting batch processing");
+
+
+        using var scope = _scopeFactory.CreateScope();
+
+
+        var processor = scope.ServiceProvider
+            .GetRequiredService<DealProcessor>();
+
+
+        await processor.ProcessAsync(
+            cancellationToken);
+
+
+        _logger.LogInformation(
+            "Batch processing completed");
+    }
+}
+
+
+using System.Diagnostics;
+
+
+public class DealProcessor
+{
+    private readonly ILogger<DealProcessor> _logger;
+    private readonly DealRepository _repository;
+
+
+    public DealProcessor(
+        ILogger<DealProcessor> logger,
+        DealRepository repository)
+    {
+        _logger = logger;
+        _repository = repository;
+    }
+
+
+    public async Task ProcessAsync(
+        CancellationToken cancellationToken)
+    {
+        var correlationId =
+            Activity.Current?.TraceId.ToString();
+
+
+        _logger.LogInformation(
+            "Processing deals with correlation {CorrelationId}",
+            correlationId);
+
+
+        var deals = await LoadDealsAsync();
+
+
+        foreach(var deal in deals)
+        {
+            await ProcessDealAsync(
+                deal,
+                cancellationToken);
+        }
+    }
+
+
+    private async Task ProcessDealAsync(
+        Deal deal,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "Processing deal {DealId}",
+            deal.Id);
+
+
+        await _repository.SaveAsync(
+            deal,
+            cancellationToken);
+    }
+
+
+    private Task<List<Deal>> LoadDealsAsync()
+    {
+        return Task.FromResult(
+            new List<Deal>());
+    }
+}
+
+
+using System.Diagnostics;
+
+
+public class DealRepository
+{
+    private readonly ILogger<DealRepository> _logger;
+
+
+    public DealRepository(
+        ILogger<DealRepository> logger)
+    {
+        _logger = logger;
+    }
+
+
+    public async Task SaveAsync(
+        Deal deal,
+        CancellationToken cancellationToken)
+    {
+        var traceId =
+            Activity.Current?.TraceId.ToString();
+
+
+        _logger.LogInformation(
+            "Saving deal {DealId} TraceId={TraceId}",
+            deal.Id,
+            traceId);
+
+
+        // dbContext.SaveChangesAsync()
+        await Task.CompletedTask;
+    }
+}
