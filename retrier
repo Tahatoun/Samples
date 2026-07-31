@@ -1,0 +1,195 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MyCompany.Infrastructure.Retry;
+
+public sealed class Retryer
+{
+    private readonly int _maxAttempts;
+    private readonly TimeSpan _delay;
+
+    public Retryer(int maxAttempts, TimeSpan delay)
+    {
+        if (maxAttempts < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxAttempts));
+
+        _maxAttempts = maxAttempts;
+        _delay = delay;
+    }
+
+    public T Execute<T>(Func<T> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        Exception? lastException = null;
+
+        for (var attempt = 1; attempt <= _maxAttempts; attempt++)
+        {
+            try
+            {
+                return action();
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+
+                if (attempt == _maxAttempts)
+                    break;
+
+                Thread.Sleep(_delay);
+            }
+        }
+
+        throw lastException!;
+    }
+
+    public void Execute(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        Execute(() =>
+        {
+            action();
+            return true;
+        });
+    }
+
+    public async Task<T> ExecuteAsync<T>(
+        Func<Task<T>> action,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        Exception? lastException = null;
+
+        for (var attempt = 1; attempt <= _maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                return await action();
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+
+                if (attempt == _maxAttempts)
+                    break;
+
+                await Task.Delay(_delay, cancellationToken);
+            }
+        }
+
+        throw lastException!;
+    }
+
+    public async Task ExecuteAsync(
+        Func<Task> action,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        await ExecuteAsync(async () =>
+        {
+            await action();
+            return true;
+        }, cancellationToken);
+    }
+}
+
+using System;
+using System.Threading.Tasks;
+using MyCompany.Infrastructure.Retry;
+using Xunit;
+
+public class RetryerTests
+{
+    [Fact]
+    public void Should_Return_Result_On_First_Attempt()
+    {
+        var retryer = new Retryer(3, TimeSpan.Zero);
+
+        var result = retryer.Execute(() => 42);
+
+        Assert.Equal(42, result);
+    }
+
+    [Fact]
+    public void Should_Retry_Until_Success()
+    {
+        var retryer = new Retryer(3, TimeSpan.Zero);
+
+        var count = 0;
+
+        var result = retryer.Execute(() =>
+        {
+            count++;
+
+            if (count < 3)
+                throw new InvalidOperationException();
+
+            return "success";
+        });
+
+        Assert.Equal("success", result);
+        Assert.Equal(3, count);
+    }
+
+    [Fact]
+    public void Should_Throw_After_Max_Attempts()
+    {
+        var retryer = new Retryer(3, TimeSpan.Zero);
+
+        var count = 0;
+
+        Assert.Throws<InvalidOperationException>(() =>
+            retryer.Execute(() =>
+            {
+                count++;
+                throw new InvalidOperationException();
+            }));
+
+        Assert.Equal(3, count);
+    }
+
+    [Fact]
+    public async Task Should_Retry_Async_Until_Success()
+    {
+        var retryer = new Retryer(3, TimeSpan.Zero);
+
+        var count = 0;
+
+        var result = await retryer.ExecuteAsync(async () =>
+        {
+            count++;
+
+            if (count < 3)
+                throw new InvalidOperationException();
+
+            await Task.CompletedTask;
+            return 123;
+        });
+
+        Assert.Equal(123, result);
+        Assert.Equal(3, count);
+    }
+
+    [Fact]
+    public async Task Should_Throw_Async_After_Max_Attempts()
+    {
+        var retryer = new Retryer(3, TimeSpan.Zero);
+
+        var count = 0;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            retryer.ExecuteAsync<int>(() =>
+            {
+                count++;
+                throw new InvalidOperationException();
+            }));
+
+        Assert.Equal(3, count);
+    }
+}
