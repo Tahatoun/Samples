@@ -1,0 +1,14 @@
+await context.Database.ExecuteSqlInterpolatedAsync($@"
+WITH Duplicates AS
+(
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY ProcessId, DealId
+               ORDER BY Id
+           ) AS rn
+    FROM Deals
+    WHERE ProcessId = {processId}
+)
+DELETE FROM Duplicates
+WHERE rn > 1;
+");
